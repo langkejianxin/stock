@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ETF 策略监控台</title>
+<script src="/echarts.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #ffffff; --line: #e3e8ef;
+    --txt: #1f2937; --sub: #6b7280; --accent: #2563eb;
+    --up: #c0392b; --down: #27ae60;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--txt);
+         font: 14px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  header h1 { font-size: 22px; }
+  header .meta { color: var(--sub); font-size: 12.5px; }
+  #refreshBtn { margin-left: auto; padding: 6px 14px; border: 1px solid var(--line);
+    border-radius: 6px; background: #fff; cursor: pointer; color: var(--txt); }
+  #refreshBtn:hover { border-color: var(--accent); color: var(--accent); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 16px 18px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+  .card h2 { font-size: 16px; margin-bottom: 10px; }
+  .card h2 .tag { font-size: 12px; font-weight: 400; color: var(--sub); margin-left: 8px; }
+  .banner { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+            padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13.5px; }
+  .banner.mom { background: #eef4ff; border: 1px solid #cfe0ff; }
+  .banner.chan { background: #f0fdf4; border: 1px solid #c8f0d5; }
+  .banner .big { font-weight: 700; }
+  .banner .sep { color: var(--sub); }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .chip { border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: #fafbfc; }
+  .chip .k { color: var(--sub); font-size: 11.5px; display: block; }
+  .chip .v { font-weight: 700; font-size: 15px; }
+  .chip .v.pos { color: var(--up); } .chip .v.neg { color: var(--down); }
+  .chart { width: 100%; height: 380px; }
+  .sub { font-size: 13px; color: var(--sub); margin: 14px 0 4px; font-weight: 600; }
+  .foot { color: var(--sub); font-size: 12px; text-align: center; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📊 ETF 策略监控台</h1>
+    <div class="meta" id="meta">加载中…</div>
+    <button id="refreshBtn">刷新数据</button>
+  </header>
+
+  <!-- 策略1: 动量20日轮动 -->
+  <div class="card">
+    <h2>策略1 · 动量(20日) 轮动 <span class="tag">512800 银行 vs 159949 创业板50 · 周五信号次周生效</span></h2>
+    <div class="banner mom" id="banner1">计算中…</div>
+    <div class="chips" id="chips1"></div>
+    <div class="chart" id="chart1"></div>
+  </div>
+
+  <!-- 策略2: 滚500·95%分位通道 -->
+  <div class="card">
+    <h2>策略2 · 滚500·95%分位通道 <span class="tag">510880 红利ETF · 上轨卖 / 下轨买 · 次日执行</span></h2>
+    <div class="banner chan" id="banner2">计算中…</div>
+    <div class="chips" id="chips2"></div>
+    <div class="sub">📈 收益曲线（2019 起 · 起点归零）</div>
+    <div class="chart" id="chart2r"></div>
+    <div class="sub">累计净值 + 滚动500日通道（红▲买入 / 绿▼卖出）</div>
+    <div class="chart" id="chart2"></div>
+  </div>
+
+  <div class="foot">数据来自本地基金净值 CSV（每日 20:30 自动更新）· 仅供研究，不构成投资建议</div>
+</div>
+
+<script>
+const fmt = (v, d = 2) => Number(v).toFixed(d);
+const pct = v => (v > 0 ? "+" : "") + fmt(v) + "%";
+
+function chip(k, v, cls = "") {
+  return `<div class="chip"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
+}
+
+function render(data) {
+  const { strategy1: s1, strategy2: s2 } = data;
+  document.getElementById("meta").textContent =
+    `更新时间 ${data.updated_at} · 计算耗时 ${data.computed_ms}ms · 数据截至 ${s2.current.date}`;
+
+  // ---- 策略1 横幅 ----
+  const sg1 = s1.signal;
+  document.getElementById("banner1").innerHTML =
+    `<span class="big">本周持有：${sg1.current_hold}</span>
+     <span class="sep">|</span>
+     最近周五(${sg1.friday}) 动量：银行 <b>${pct(sg1.mom_bank)}</b> vs 创业板 <b>${pct(sg1.mom_cyb)}</b>
+     <span class="sep">→</span> 下周倾向：<span class="big">${sg1.next_target}</span>`;
+
+  // ---- 策略1 指标 ----
+  const m1 = s1.metrics;
+  document.getElementById("chips1").innerHTML =
+    chip("累计收益", pct(m1.total), m1.total >= 0 ? "pos" : "neg") +
+    chip("年化(日历日)", pct(m1.ann), m1.ann >= 0 ? "pos" : "neg") +
+    chip("最大回撤", pct(m1.mdd), "neg") +
+    chip("夏普比率", fmt(m1.sharpe)) +
+    chip("换仓次数", m1.switches) +
+    chip("回测区间", m1.period, "");
+
+  // ---- 策略1 图 ----
+  const c1 = echarts.init(document.getElementById("chart1"));
+  c1.setOption({
+    tooltip: { trigger: "axis", valueFormatter: v => (v == null ? "-" : v.toFixed(2) + "%") },
+    legend: { data: ["策略(动量20)", "512800 银行", "159949 创业板"], top: 0 },
+    grid: { left: 60, right: 20, top: 34, bottom: 60 },
+    xAxis: { type: "category", data: s1.dates, boundaryGap: false },
+    yAxis: { type: "value", name: "累计收益率 %" },
+    dataZoom: [{ type: "inside" }, { type: "slider", height: 16, bottom: 8 }],
+    series: [
+      { name: "策略(动量20)", type: "line", data: s1.strategy, symbol: "none",
+        lineStyle: { width: 2, color: "#2563eb" }, itemStyle: { color: "#2563eb" } },
+      { name: "512800 银行", type: "line", data: s1.bank, symbol: "none",
+        lineStyle: { width: 1.2, color: "#e67e22" }, itemStyle: { color: "#e67e22" } },
+      { name: "159949 创业板", type: "line", data: s1.cyb, symbol: "none",
+        lineStyle: { width: 1.2, color: "#8e44ad" }, itemStyle: { color: "#8e44ad" } },
+    ],
+  });
+
+  // ---- 策略2 横幅 ----
+  const cur = s2.current;
+  document.getElementById("banner2").innerHTML =
+    `<span class="big">${cur.action}</span>
+     <span class="sep">|</span>
+     最新累计净值 <b>${fmt(cur.nav, 4)}</b>（${cur.date}）·
+     上轨 ${cur.up} / 中轨 ${cur.mid} / 下轨 ${cur.lo} ·
+     通道位置 ${cur.chan_pos}%`;
+
+  // ---- 策略2 指标 ----
+  const m2 = s2.metrics;
+  document.getElementById("chips2").innerHTML =
+    chip("累计收益", pct(m2.total), m2.total >= 0 ? "pos" : "neg") +
+    chip("年化(日历日)", pct(m2.ann), m2.ann >= 0 ? "pos" : "neg") +
+    chip("最大回撤", pct(m2.mdd), "neg") +
+    chip("夏普比率", fmt(m2.sharpe)) +
+    chip("平均仓位", fmt(m2.avg_pos, 1) + "%") +
+    chip("空仓占比", fmt(m2.cash, 1) + "%") +
+    chip("买/卖次数", m2.buys + "/" + m2.sells) +
+    chip("对照·一直持有", pct(m2.bh.total), m2.bh.total >= 0 ? "pos" : "neg") +
+    chip("回测区间", m2.period, "");
+
+  // ---- 策略2 收益曲线图(起点归零) ----
+  const baseS = s2.strategy_nav[0], baseB = s2.bh_nav[0];
+  const retS = s2.strategy_nav.map(v => +(v / baseS * 100 - 100).toFixed(2));
+  const retB = s2.bh_nav.map(v => +(v / baseB * 100 - 100).toFixed(2));
+  const c2r = echarts.init(document.getElementById("chart2r"));
+  c2r.setOption({
+    tooltip: { trigger: "axis", valueFormatter: v => (v == null ? "-" : v.toFixed(2) + "%") },
+    legend: { data: ["策略(滚500·95%分位)", "一直持有"], top: 0 },
+    grid: { left: 60, right: 20, top: 34, bottom: 60 },
+    xAxis: { type: "category", data: s2.dates, boundaryGap: false },
+    yAxis: { type: "value", name: "累计收益率 %" },
+    dataZoom: [{ type: "inside" }, { type: "slider", height: 16, bottom: 8 }],
+    series: [
+      { name: "策略(滚500·95%分位)", type: "line", data: retS, symbol: "none",
+        lineStyle: { width: 2, color: "#16a34a" }, itemStyle: { color: "#16a34a" } },
+      { name: "一直持有", type: "line", data: retB, symbol: "none",
+        lineStyle: { width: 1.2, color: "#9ca3af" }, itemStyle: { color: "#9ca3af" } },
+    ],
+  });
+
+  // ---- 策略2 图 ----
+  const buys = s2.buys.map(b => [b.date, b.value]);
+  const sells = s2.sells.map(b => [b.date, b.value]);
+  const c2 = echarts.init(document.getElementById("chart2"));
+  c2.setOption({
+    tooltip: { trigger: "axis", valueFormatter: v => (v == null ? "-" : Number(v).toFixed(4)) },
+    legend: { data: ["累计净值", "上轨", "中轨", "下轨", "买入", "卖出"], top: 0 },
+    grid: { left: 60, right: 20, top: 34, bottom: 60 },
+    xAxis: { type: "category", data: s2.dates, boundaryGap: false },
+    yAxis: { type: "value", name: "累计净值", scale: true },
+    dataZoom: [{ type: "inside" }, { type: "slider", height: 16, bottom: 8 }],
+    series: [
+      { name: "累计净值", type: "line", data: s2.nav, symbol: "none",
+        lineStyle: { width: 2, color: "#2c3e50" }, itemStyle: { color: "#2c3e50" }, z: 5 },
+      { name: "上轨", type: "line", data: s2.up, symbol: "none",
+        lineStyle: { width: 1, color: "#e74c3c", type: "dashed" } },
+      { name: "中轨", type: "line", data: s2.mid, symbol: "none",
+        lineStyle: { width: 1, color: "#95a5a6", type: "dashed" } },
+      { name: "下轨", type: "line", data: s2.lo, symbol: "none",
+        lineStyle: { width: 1, color: "#27ae60", type: "dashed" } },
+      { name: "买入", type: "scatter", data: buys, symbol: "triangle", symbolSize: 11,
+        itemStyle: { color: "#c0392b" }, z: 10 },
+      { name: "卖出", type: "scatter", data: sells, symbol: "triangle", symbolRotate: 180,
+        symbolSize: 11, itemStyle: { color: "#27ae60" }, z: 10 },
+    ],
+  });
+}
+
+async function load() {
+  const btn = document.getElementById("refreshBtn");
+  btn.disabled = true; btn.textContent = "刷新中…";
+  try {
+    const resp = await fetch("/api/data" + (location.hash === "#force" ? "?refresh=1" : ""));
+    render(await resp.json());
+  } catch (e) {
+    document.getElementById("meta").textContent = "加载失败: " + e;
+  }
+  btn.disabled = false; btn.textContent = "刷新数据";
+}
+
+document.getElementById("refreshBtn").addEventListener("click", load);
+load();
+setInterval(load, 5 * 60 * 1000);          // 每 5 分钟自动刷新
+window.addEventListener("resize", () => {
+  const a = echarts.getInstanceByDom(document.getElementById("chart1"));
+  const b = echarts.getInstanceByDom(document.getElementById("chart2"));
+  const c = echarts.getInstanceByDom(document.getElementById("chart2r"));
+  a && a.resize(); b && b.resize(); c && c.resize();
+});
+</script>
+</body>
+</html>
