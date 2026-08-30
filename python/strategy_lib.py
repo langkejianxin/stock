@@ -81,6 +81,16 @@ def momentum_result():
     }
 
     dates = [d.strftime("%Y-%m-%d") for d in df.index]
+
+    # 最近10周周收益(按策略实际持仓复利) + 当周持有标的
+    wret = (1 + ret_strat).resample("W-FRI").prod() - 1
+    whold = target.resample("W-FRI").last()
+    weekly = [
+        {"date": str(d.date()), "ret": round(float(r * 100), 2),
+         "hold": "bank" if whold[d] == "bank" else "cyb"}
+        for d, r in wret.tail(10).iloc[::-1].items()
+    ]
+
     return {
         "name": "动量(20日) 轮动",
         "dates": dates,
@@ -97,6 +107,7 @@ def momentum_result():
         },
         "signal": cur_signal,
         "holdings": [("bank" if t == "bank" else "cyb") for t in target],
+        "weekly": weekly,
     }
 
 
@@ -190,6 +201,13 @@ def channel_result():
         action = "空仓"
 
     vis_idx = np.where(vis.values)[0]
+
+    # 最近10周周收益(策略按持仓复利)
+    r_ser = pd.Series(r_strat, index=df["date"])
+    wret = (1 + r_ser).resample("W-FRI").prod() - 1
+    weekly = [{"date": str(d.date()), "ret": round(float(r * 100), 2)}
+              for d, r in wret.tail(10).iloc[::-1].items()]
+
     return {
         "name": "滚500·95%分位通道",
         "dates": [df["date"].iloc[j].strftime("%Y-%m-%d") for j in vis_idx],
@@ -208,6 +226,7 @@ def channel_result():
         },
         "buys": buys,
         "sells": sells,
+        "weekly": weekly,
         "current": {
             "date": str(df["date"].iloc[-1].date()),
             "nav": round(float(cur), 4),

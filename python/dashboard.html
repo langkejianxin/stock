@@ -38,6 +38,14 @@
   .chip .v.pos { color: var(--up); } .chip .v.neg { color: var(--down); }
   .chart { width: 100%; height: 380px; }
   .sub { font-size: 13px; color: var(--sub); margin: 14px 0 4px; font-weight: 600; }
+  table.wk { width: 100%; max-width: 520px; border-collapse: collapse; font-size: 12.5px; margin: 4px 0 14px; }
+  table.wk th, table.wk td { border: 1px solid var(--line); padding: 3px 12px; text-align: center; }
+  table.wk th { background: #fafbfc; color: var(--sub); font-weight: 600; }
+  table.wk td.num { font-variant-numeric: tabular-nums; }
+  table.wk td.pos { color: var(--up); font-weight: 700; }
+  table.wk td.neg { color: var(--down); font-weight: 700; }
+  table.wk td.hold-bank { color: #e67e22; font-weight: 600; }
+  table.wk td.hold-cyb { color: #8e44ad; font-weight: 600; }
   .foot { color: var(--sub); font-size: 12px; text-align: center; margin-top: 8px; }
 </style>
 </head>
@@ -54,6 +62,11 @@
     <h2>策略1 · 动量(20日) 轮动 <span class="tag">512800 银行 vs 159949 创业板50 · 周五信号次周生效</span></h2>
     <div class="banner mom" id="banner1">计算中…</div>
     <div class="chips" id="chips1"></div>
+    <div class="sub">📋 最近10周周收益</div>
+    <table class="wk" id="wk1">
+      <thead><tr><th>周(截至周五)</th><th>周收益率</th><th>当周持有</th></tr></thead>
+      <tbody></tbody>
+    </table>
     <div class="chart" id="chart1"></div>
   </div>
 
@@ -62,6 +75,11 @@
     <h2>策略2 · 滚500·95%分位通道 <span class="tag">510880 红利ETF · 上轨卖 / 下轨买 · 次日执行</span></h2>
     <div class="banner chan" id="banner2">计算中…</div>
     <div class="chips" id="chips2"></div>
+    <div class="sub">📋 最近10周周收益</div>
+    <table class="wk" id="wk2">
+      <thead><tr><th>周(截至周五)</th><th>周收益率</th></tr></thead>
+      <tbody></tbody>
+    </table>
     <div class="sub">📈 收益曲线（2019 起 · 起点归零）</div>
     <div class="chart" id="chart2r"></div>
     <div class="sub">累计净值 + 滚动500日通道（红▲买入 / 绿▼卖出）</div>
@@ -101,6 +119,13 @@ function render(data) {
     chip("夏普比率", fmt(m1.sharpe)) +
     chip("换仓次数", m1.switches) +
     chip("回测区间", m1.period, "");
+
+  // ---- 策略1 周收益表 ----
+  document.querySelector("#wk1 tbody").innerHTML = (s1.weekly || []).map(r => {
+    const cls = r.ret > 0 ? "pos" : r.ret < 0 ? "neg" : "";
+    return `<tr><td>${r.date}</td><td class="num ${cls}">${r.ret > 0 ? "+" : ""}${r.ret.toFixed(2)}%</td>
+            <td class="hold-${r.hold}">${r.hold === "bank" ? "银行ETF" : "创业板50"}</td></tr>`;
+  }).join("");
 
   // ---- 策略1 图(按持仓分段着色 + 底部持仓色条) ----
   const hold = s1.holdings;                       // ["bank"|"cyb", ...]
@@ -184,6 +209,12 @@ function render(data) {
     chip("买/卖次数", m2.buys + "/" + m2.sells) +
     chip("对照·一直持有", pct(m2.bh.total), m2.bh.total >= 0 ? "pos" : "neg") +
     chip("回测区间", m2.period, "");
+
+  // ---- 策略2 周收益表 ----
+  document.querySelector("#wk2 tbody").innerHTML = (s2.weekly || []).map(r => {
+    const cls = r.ret > 0 ? "pos" : r.ret < 0 ? "neg" : "";
+    return `<tr><td>${r.date}</td><td class="num ${cls}">${r.ret > 0 ? "+" : ""}${r.ret.toFixed(2)}%</td></tr>`;
+  }).join("");
 
   // ---- 策略2 收益曲线图(起点归零) ----
   const baseS = s2.strategy_nav[0], baseB = s2.bh_nav[0];
