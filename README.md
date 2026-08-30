@@ -46,5 +46,6 @@ launchctl list | grep stock
 
 - 数据源: 东方财富基金 F10 净值接口(免登录)，`fetch_nav.py` 增量更新 `data/*_基金净值.csv`
 - 仪表盘每次刷新实时从 `data/` 重算(约 0.3s)，数据以 CSV 为唯一事实来源
+- 页面右上角「抓取并刷新」按钮 = 先增量抓取最新净值(东方财富) → 再重算并刷新图表；每 5 分钟自动刷新仅重算不抓取
 - 环境: `/opt/homebrew/bin/python3.9`(pandas/numpy/openpyxl)；系统 python3 无依赖不可用
 - ⚠️ 仅供策略研究，不构成投资建议

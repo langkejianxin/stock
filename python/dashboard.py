@@ -14,6 +14,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import fetch_nav
 import strategy_lib
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8756
@@ -43,6 +44,18 @@ def get_data(force=False):
     return _cache["data"]
 
 
+def do_refresh():
+    """增量抓取全部基金的最新净值(东方财富), 返回每只基金的抓取结果。"""
+    results = []
+    for code in fetch_nav.FUND_CODES:
+        try:
+            added, latest = fetch_nav.update_fund(code)
+            results.append({"code": code, "added": added, "latest": latest})
+        except Exception as exc:  # noqa: BLE001
+            results.append({"code": code, "error": str(exc)})
+    return results
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # 精简日志
         sys.stderr.write("[%s] %s\n" % (self.log_date_time_string(), fmt % args))
@@ -63,6 +76,13 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/data":
             force = "refresh=1" in self.path
             body = json.dumps(get_data(force), ensure_ascii=False).encode("utf-8")
+            self._send(200, body, "application/json; charset=utf-8")
+        elif path == "/api/refresh":
+            # 先增量抓取最新净值, 再强制重算并返回(供页面"抓取并刷新"按钮调用)
+            fetched = do_refresh()
+            data = dict(get_data(force=True))
+            data["fetched"] = fetched
+            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
             self._send(200, body, "application/json; charset=utf-8")
         elif path == "/echarts.min.js":
             with open(os.path.join(HERE, "echarts.min.js"), "rb") as f:

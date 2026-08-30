@@ -108,20 +108,25 @@ def merge_and_save(code: str, rows: list[dict]) -> int:
     return added, ordered[-1]["净值日期"] if ordered else None
 
 
+def update_fund(code: str) -> tuple[int, Optional[str]]:
+    """抓取并合并单只基金净值(增量), 返回 (新增条数, 最新日期)。供命令行与仪表盘共用。"""
+    csv_path = os.path.join(DATA_DIR, f"{code}_基金净值.csv")
+    stop_at = None
+    if os.path.exists(csv_path):
+        with open(csv_path, newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+        if rows:
+            stop_at = max(r["净值日期"] for r in rows)
+    fetched = fetch_pages(code, stop_at)
+    return merge_and_save(code, fetched)
+
+
 def main() -> int:
     codes = sys.argv[1:] or FUND_CODES
     for code in codes:
-        csv_path = os.path.join(DATA_DIR, f"{code}_基金净值.csv")
-        stop_at = None
-        if os.path.exists(csv_path):
-            with open(csv_path, newline="", encoding="utf-8-sig") as f:
-                rows = list(csv.DictReader(f))
-            if rows:
-                stop_at = max(r["净值日期"] for r in rows)
         try:
-            fetched = fetch_pages(code, stop_at)
-            added, latest = merge_and_save(code, fetched)
-            print(f"{code}: 新增 {added} 条, 最新 {latest} -> {csv_path}", flush=True)
+            added, latest = update_fund(code)
+            print(f"{code}: 新增 {added} 条, 最新 {latest} -> data/{code}_基金净值.csv", flush=True)
         except Exception as exc:  # noqa: BLE001
             print(f"[error] {code}: {exc}", flush=True)
             return 1

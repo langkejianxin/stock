@@ -46,7 +46,7 @@
   <header>
     <h1>📊 ETF 策略监控台</h1>
     <div class="meta" id="meta">加载中…</div>
-    <button id="refreshBtn">刷新数据</button>
+    <button id="refreshBtn">抓取并刷新</button>
   </header>
 
   <!-- 策略1: 动量20日轮动 -->
@@ -191,21 +191,31 @@ function render(data) {
   });
 }
 
-async function load() {
+async function load(doFetch = false) {
   const btn = document.getElementById("refreshBtn");
-  btn.disabled = true; btn.textContent = "刷新中…";
+  btn.disabled = true;
+  btn.textContent = doFetch ? "抓取中…" : "刷新中…";
   try {
-    const resp = await fetch("/api/data" + (location.hash === "#force" ? "?refresh=1" : ""));
-    render(await resp.json());
+    // doFetch=true: 先增量抓取最新净值再重算(按钮); false: 仅重算(自动刷新)
+    const url = doFetch ? "/api/refresh" : "/api/data";
+    const data = await (await fetch(url)).json();
+    render(data);
+    if (doFetch && data.fetched) {
+      const parts = data.fetched.map(f =>
+        f.error ? `${f.code}(抓取失败)` : `${f.code}(+${f.added}条)`
+      ).join(" ");
+      document.getElementById("meta").textContent += ` · 已抓取: ${parts}`;
+    }
   } catch (e) {
-    document.getElementById("meta").textContent = "加载失败: " + e;
+    document.getElementById("meta").textContent = "刷新失败: " + e;
   }
-  btn.disabled = false; btn.textContent = "刷新数据";
+  btn.disabled = false;
+  btn.textContent = "抓取并刷新";
 }
 
-document.getElementById("refreshBtn").addEventListener("click", load);
+document.getElementById("refreshBtn").addEventListener("click", () => load(true));
 load();
-setInterval(load, 5 * 60 * 1000);          // 每 5 分钟自动刷新
+setInterval(() => load(false), 5 * 60 * 1000);   // 每 5 分钟自动刷新(仅重算)
 window.addEventListener("resize", () => {
   const a = echarts.getInstanceByDom(document.getElementById("chart1"));
   const b = echarts.getInstanceByDom(document.getElementById("chart2"));
