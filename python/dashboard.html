@@ -102,22 +102,64 @@ function render(data) {
     chip("换仓次数", m1.switches) +
     chip("回测区间", m1.period, "");
 
-  // ---- 策略1 图 ----
+  // ---- 策略1 图(按持仓分段着色 + 底部持仓色条) ----
+  const hold = s1.holdings;                       // ["bank"|"cyb", ...]
+  const stBank = s1.strategy.map((v, i) => hold[i] === "bank" ? v : null);
+  const stCyb = s1.strategy.map((v, i) => hold[i] === "cyb" ? v : null);
+  const holdBank = hold.map(h => h === "bank" ? 1 : 0);
+  const holdCyb = hold.map(h => h === "cyb" ? 1 : 0);
   const c1 = echarts.init(document.getElementById("chart1"));
   c1.setOption({
-    tooltip: { trigger: "axis", valueFormatter: v => (v == null ? "-" : v.toFixed(2) + "%") },
-    legend: { data: ["策略(动量20)", "512800 银行", "159949 创业板"], top: 0 },
-    grid: { left: 60, right: 20, top: 34, bottom: 60 },
-    xAxis: { type: "category", data: s1.dates, boundaryGap: false },
-    yAxis: { type: "value", name: "累计收益率 %" },
-    dataZoom: [{ type: "inside" }, { type: "slider", height: 16, bottom: 8 }],
+    tooltip: {
+      trigger: "axis", axisPointer: { type: "cross" },
+      formatter: (params) => {
+        let s = params[0].axisValue + "<br/>";
+        for (const it of params) {
+          if (it.seriesName === "持仓:银行") { s += "持仓: <b style='color:#e67e22'>银行ETF(512800)</b><br/>"; continue; }
+          if (it.seriesName === "持仓:创业板") { s += "持仓: <b style='color:#8e44ad'>创业板50(159949)</b><br/>"; continue; }
+          if (it.value == null) continue;
+          if (it.seriesName.startsWith("策略")) s += `${it.marker}${it.seriesName}: <b>${it.value.toFixed(2)}%</b><br/>`;
+          else s += `${it.marker}${it.seriesName}: ${it.value.toFixed(2)}%<br/>`;
+        }
+        return s;
+      },
+    },
+    legend: { data: ["策略(持银行)", "策略(持创业板)", "512800 银行", "159949 创业板"], top: 0 },
+    grid: [
+      { left: 60, right: 20, top: 34, height: "56%" },
+      { left: 60, right: 20, top: "72%", height: 24 },
+    ],
+    xAxis: [
+      { type: "category", data: s1.dates, boundaryGap: false,
+        axisLabel: {
+          formatter: (v, i) => `{h${hold[i]}|${v}}`,
+          rich: { hbank: { color: "#e67e22" }, hcyb: { color: "#8e44ad" } },
+        } },
+      { type: "category", gridIndex: 1, data: s1.dates, boundaryGap: false,
+        axisLabel: { show: false }, axisTick: { show: false }, axisLine: { show: false } },
+    ],
+    yAxis: [
+      { type: "value", name: "累计收益率 %" },
+      { type: "value", gridIndex: 1, min: 0, max: 1, show: false },
+    ],
+    dataZoom: [
+      { type: "inside", xAxisIndex: [0, 1] },
+      { type: "slider", xAxisIndex: [0, 1], height: 16, bottom: 8 },
+    ],
+    axisPointer: { link: [{ xAxisIndex: "all" }] },
     series: [
-      { name: "策略(动量20)", type: "line", data: s1.strategy, symbol: "none",
-        lineStyle: { width: 2, color: "#2563eb" }, itemStyle: { color: "#2563eb" } },
+      { name: "策略(持银行)", type: "line", data: stBank, symbol: "none",
+        lineStyle: { width: 2, color: "#e67e22" }, itemStyle: { color: "#e67e22" }, z: 5 },
+      { name: "策略(持创业板)", type: "line", data: stCyb, symbol: "none",
+        lineStyle: { width: 2, color: "#8e44ad" }, itemStyle: { color: "#8e44ad" }, z: 5 },
       { name: "512800 银行", type: "line", data: s1.bank, symbol: "none",
-        lineStyle: { width: 1.2, color: "#e67e22" }, itemStyle: { color: "#e67e22" } },
+        lineStyle: { width: 1, color: "#e67e22", opacity: 0.35, type: "dashed" }, itemStyle: { color: "#e67e22" } },
       { name: "159949 创业板", type: "line", data: s1.cyb, symbol: "none",
-        lineStyle: { width: 1.2, color: "#8e44ad" }, itemStyle: { color: "#8e44ad" } },
+        lineStyle: { width: 1, color: "#8e44ad", opacity: 0.35, type: "dashed" }, itemStyle: { color: "#8e44ad" } },
+      { name: "持仓:银行", type: "bar", xAxisIndex: 1, yAxisIndex: 1, stack: "hold",
+        data: holdBank, barWidth: "100%", itemStyle: { color: "#e67e22" }, z: 3 },
+      { name: "持仓:创业板", type: "bar", xAxisIndex: 1, yAxisIndex: 1, stack: "hold",
+        data: holdCyb, barWidth: "100%", itemStyle: { color: "#8e44ad" }, z: 3 },
     ],
   });
 
