@@ -37,8 +37,8 @@ OUT_COLS = ["日期", "开盘", "收盘", "最高", "最低", "成交量", "收�
 
 def fetch_range(code: str, start: str, end: str, market: str = "sh") -> list[list]:
     """抓取一段日线, 返回 [[日期,开,收,高,低,量,收不复权], ...](前复权 + 不复权)。"""
-    # 两次请求: qfq 拿前复权(写 OHLCV+收盘), 空 fq 拿不复权(只补 收盘不复权 列)
-    out = {}
+    out: dict[str, list] = {}
+    day_fallback: dict[str, list] = {}   # 无前复权数据时的兜底(不复权日线)
     for fq in ("qfq", ""):
         fq_part = fq + "," if fq else ","
         param = f"{market}{code},day,{start},{end},800,{fq_part}"
@@ -47,23 +47,35 @@ def fetch_range(code: str, start: str, end: str, market: str = "sh") -> list[lis
         with urllib.request.urlopen(req, timeout=20) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         node = (data.get("data") or {}).get(f"{market}{code}")
-        if not isinstance(node, dict):
-            raise RuntimeError(f"{code} 接口返回异常: {data.get('msg')}")
+        if not isinstance(node, dict) or ("qfqday" not in node and "day" not in node):
+            continue   # 该口径无数据(如 sz159949 无 qfq): 跳过, 交给兜底
         kl = node.get("qfqday") or node.get("day") or []
         for r in kl:
-            row = out.setdefault(r[0], [None] * 7)
-            row[0] = r[0]
-            if fq:                              # 前复权: 写 OHLCV + 收盘(红利再投资口径)
+            date = r[0]
+            if fq:
+                row = out.setdefault(date, [date, None, None, None, None, None, None])
                 row[1], row[2], row[3], row[4], row[5] = r[1], r[2], r[3], r[4], r[5]
-            else:                               # 不复权: 只补第6列(纯价格信号用)
+                if not node.get("qfqday"):
+                    day_fallback[date] = [date, r[1], r[2], r[3], r[4], r[5], None]
+            else:
+                row = out.setdefault(date, [date, None, None, None, None, None, None])
                 row[6] = r[2]
+                if row[1] is None:
+                    day_fallback[date] = [date, r[1], r[2], r[3], r[4], r[5], r[2]]
         time.sleep(0.3)
+    # 无前复权数据的标的(如从未分红的 ETF): 用不复权 day 填 OHLCV(两者等价)
+    for date, row in day_fallback.items():
+        if date not in out:
+            out[date] = row
+        elif out[date][1] is None:
+            out[date][1], out[date][2], out[date][3], out[date][4], out[date][5] = row[1], row[2], row[3], row[4], row[5]
     # 剔除缺失列的行(某天只有一种口径的极端情况)
     return [r for r in out.values() if all(x is not None for x in r)]
 
 
 def market_of(code: str) -> str:
-    return "sh" if code.startswith(("6", "9")) else "sz"
+    # 沪市: 6/9 股票、5 开头 ETF(如 512800); 其余(0/1/2/3)为深市
+    return "sh" if code.startswith(("5", "6", "9")) else "sz"
 
 
 START_YEAR = 2005   # 全量重抓起点(前复权价格会随新分红整体重算, 必须覆盖旧数据)

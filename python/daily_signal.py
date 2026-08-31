@@ -41,8 +41,8 @@ def fmt(x):
 
 # ============ 策略1: 动量(20日) 轮动 ============
 def signal_momentum():
-    bank = load("512800_基金净值.csv")
-    cyb = load("159949_基金净值.csv")
+    bank = load("512800_股票.csv")   # 场内前复权价(周五收盘执行口径)
+    cyb = load("159949_股票.csv")
     b = bank.assign(mom20=bank["close"].pct_change(20))
     c = cyb.assign(mom20=cyb["close"].pct_change(20))
     m = b.merge(c, on="date", suffixes=("_bank", "_cyb")).set_index("date")

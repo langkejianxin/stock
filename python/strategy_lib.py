@@ -22,8 +22,15 @@ VIS_CHAN = "2019-01-01"    # 策略2 展示起点(对齐文档)
 def load(path, keep_extra=False):
     df = pd.read_csv(os.path.join(DATA_DIR, path))
     df.columns = [str(c).strip() for c in df.columns]
-    rename = {"净值日期": "date", "累计净值": "close"}
+    rename = {}
+    for c in df.columns:
+        if c in ("净值日期", "日期", "date", "Date"):
+            rename[c] = "date"
+        elif c in ("累计净值", "收盘", "close", "Close"):
+            rename[c] = "close"
     df = df.rename(columns=rename)
+    if "close" not in df.columns:
+        df = df.rename(columns={"单位净值": "close"})
     df["date"] = pd.to_datetime(df["date"])
     df["close"] = pd.to_numeric(df["close"], errors="coerce")
     df = df.sort_values("date").reset_index(drop=True)
@@ -34,9 +41,10 @@ def load(path, keep_extra=False):
 
 
 # ==================== 策略1: 动量(20日) 轮动 ====================
+# 数据源: 场内前复权价格(腾讯 fqkline, fetch_stock.py 维护) —— 周五收盘执行口径
 def momentum_result():
-    bank = load("512800_基金净值.csv")
-    cyb = load("159949_基金净值.csv")
+    bank = load("512800_股票.csv")
+    cyb = load("159949_股票.csv")
     b = bank.assign(mom20=bank["close"].pct_change(20))
     c = cyb.assign(mom20=cyb["close"].pct_change(20))
     df = b.merge(c, on="date", suffixes=("_bank", "_cyb")).set_index("date").sort_index()
