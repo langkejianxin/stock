@@ -40,80 +40,114 @@ def load(path, keep_extra=False):
     return df
 
 
-# ==================== 策略1: 动量(20日) 轮动 ====================
+def rsi_from_ret(ret, n):
+    gain = ret.clip(lower=0)
+    loss = -ret.clip(upper=0)
+    avg_gain = gain.rolling(n, min_periods=n).mean()
+    avg_loss = loss.rolling(n, min_periods=n).mean()
+    rs = avg_gain / avg_loss
+    return 100 - 100 / (1 + rs)
+
+
+# ==================== 策略1: RSI+动量 共识(分歧各半) ====================
 # 数据源: 场内前复权价格(腾讯 fqkline, fetch_stock.py 维护) —— 周五收盘执行口径
-def momentum_result():
+# 规则: RSI(14) 与 动量(20) 两个信号一致 → 满仓该标的; 分歧 → 各持一半; 永不空仓
+def consensus_result():
     bank = load("512800_股票.csv")
     cyb = load("159949_股票.csv")
-    b = bank.assign(mom20=bank["close"].pct_change(20))
-    c = cyb.assign(mom20=cyb["close"].pct_change(20))
+    b = bank.assign(
+        mom20=bank["close"].pct_change(20),
+        rsi14=rsi_from_ret(bank["close"].pct_change().fillna(0), 14),
+    )
+    c = cyb.assign(
+        mom20=cyb["close"].pct_change(20),
+        rsi14=rsi_from_ret(cyb["close"].pct_change().fillna(0), 14),
+    )
     df = b.merge(c, on="date", suffixes=("_bank", "_cyb")).set_index("date").sort_index()
     df = df[df.index >= pd.Timestamp(START_MOM)]
     df["week"] = df.index.to_period("W-FRI")
     df["ret_bank"] = df["close_bank"].pct_change().fillna(0.0)
     df["ret_cyb"] = df["close_cyb"].pct_change().fillna(0.0)
 
-    # 周五收盘比较 20 日动量 -> 信号延迟一周生效
-    wk = df[["mom20_bank", "mom20_cyb"]].resample("W-FRI").last()
-    wk = wk[wk.index <= df.index[-1]]  # 只保留完整周(周五标签不晚于数据末日, 避免把不完整周当信号)
-    sig_weekly = pd.Series(
-        np.where(wk["mom20_bank"] > wk["mom20_cyb"], "bank", "cyb"), index=wk.index
-    )
-    sig_weekly.index = sig_weekly.index.to_period("W-FRI")
-    target = df["week"].map(sig_weekly.shift(1)).fillna("cyb")
+    # 周五收盘比较 RSI(14) 与 动量(20) -> 信号延迟一周生效
+    wk = df[["rsi14_bank", "rsi14_cyb", "mom20_bank", "mom20_cyb"]].resample("W-FRI").last()
+    wk = wk[wk.index <= df.index[-1]]  # 只保留完整周
+    sig_rsi = pd.Series(np.where(wk["rsi14_bank"] > wk["rsi14_cyb"], "bank", "cyb"), index=wk.index)
+    sig_mom = pd.Series(np.where(wk["mom20_bank"] > wk["mom20_cyb"], "bank", "cyb"), index=wk.index)
+    sig_rsi.index = sig_rsi.index.to_period("W-FRI")
+    sig_mom.index = sig_mom.index.to_period("W-FRI")
+    # 信号延迟一周; 当前不完整周(周五标签超数据末日)沿用最近完整周信号, 再兜底 cyb
+    t1 = df["week"].map(sig_rsi.shift(1)).ffill().fillna("cyb")   # RSI 当周持仓
+    t2 = df["week"].map(sig_mom.shift(1)).ffill().fillna("cyb")   # 动量 当周持仓
 
-    ret_strat = pd.Series(
-        np.where(target == "bank", df["ret_bank"], df["ret_cyb"]), index=df.index
-    )
+    # 共识: 一致满仓该标的, 分歧各持一半(对齐 gen_compare_html 共识段)
+    r_b = df["ret_bank"].values
+    r_c = df["ret_cyb"].values
+    agree = (t1 == t2).values
+    held = np.where(t1 == "bank", r_b, r_c)
+    ret_strat = pd.Series(np.where(agree, held, 0.5 * (r_b + r_c)), index=df.index).fillna(0)
+    state = pd.Series(np.where(agree, t1.values, "mix"), index=df.index)   # bank/cyb/mix
     nav = (1 + ret_strat).cumprod()
     nav_bank = (1 + df["ret_bank"]).cumprod()
     nav_cyb = (1 + df["ret_cyb"]).cumprod()
 
-    # 绩效(对齐 compare_all.stats)
+    # 绩效
     total = nav.iloc[-1] - 1
     ann = nav.iloc[-1] ** (365.25 / (nav.index[-1] - nav.index[0]).days) - 1
     mdd = (nav / nav.cummax() - 1).min()
     sharpe = ret_strat.mean() / ret_strat.std() * math.sqrt(252) if ret_strat.std() > 0 else 0.0
-    switches = int((target != target.shift()).sum() - 1)
+    switches = int((state != state.shift()).sum() - 1)   # 三种形态切换次数
 
-    # 当前信号: 最新完整周五的比较结果 = 本周(周一生效)应持有的标的
+    # 当前信号
     wkl = wk.dropna()
     last = wkl.iloc[-1]
     prev = wkl.iloc[-2]
-    cur_target = "bank" if last["mom20_bank"] > last["mom20_cyb"] else "cyb"
-    prev_fri = wkl.index[-1]  # 上一完整周的周五(08-28): prev 信号的生效周
+    prev_fri = wkl.index[-1]  # 上一完整周的周五: prev 信号的生效周
+
+    def state_name(s):
+        return {"bank": "银行ETF(512800)", "cyb": "创业板50ETF(159949)", "mix": "各持一半(50/50)"}[s]
+
+    def state_of(row):
+        rsi = "bank" if row["rsi14_bank"] > row["rsi14_cyb"] else "cyb"
+        mom = "bank" if row["mom20_bank"] > row["mom20_cyb"] else "cyb"
+        return rsi if rsi == mom else "mix"
+
     cur_signal = {
         "friday": str(wkl.index[-1].date()),
+        "rsi_bank": round(float(last["rsi14_bank"]), 1),
+        "rsi_cyb": round(float(last["rsi14_cyb"]), 1),
         "mom_bank": round(float(last["mom20_bank"]) * 100, 2),
         "mom_cyb": round(float(last["mom20_cyb"]) * 100, 2),
-        "hold_now": "创业板50ETF(159949)" if cur_target == "cyb" else "银行ETF(512800)",
+        "rsi_win": state_name("bank" if last["rsi14_bank"] > last["rsi14_cyb"] else "cyb"),
+        "mom_win": state_name("bank" if last["mom20_bank"] > last["mom20_cyb"] else "cyb"),
+        "hold_now": state_name(state_of(last)),
+        "hold_now_code": state_of(last),
         "cur_start": str((wkl.index[-1] + pd.Timedelta(days=3)).date()),  # 本周一(信号次周生效)
         "prev_week": f"{str((prev_fri - pd.Timedelta(days=4)).date())} ~ {str(prev_fri.date())}",
-        "prev_hold": "创业板50ETF(159949)" if prev["mom20_bank"] <= prev["mom20_cyb"] else "银行ETF(512800)",
+        "prev_hold": state_name(state_of(prev)),
+        "prev_hold_code": state_of(prev),
     }
 
     dates = [d.strftime("%Y-%m-%d") for d in df.index]
 
-    # 最近20周周收益(按策略实际持仓复利) + 当周持有标的
+    # 最近20周周收益(按策略实际持仓复利) + 当周形态
     wret = (1 + ret_strat).resample("W-FRI").prod() - 1
-    whold = target.resample("W-FRI").last()
+    wstate = state.resample("W-FRI").last()
     wret = wret[wret.index <= df.index[-1]]      # 去掉不完整周
-    whold = whold[whold.index <= df.index[-1]]
+    wstate = wstate[wstate.index <= df.index[-1]]
     weekly = [
-        {"date": str(d.date()), "ret": round(float(r * 100), 2),
-         "hold": "bank" if whold[d] == "bank" else "cyb"}
+        {"date": str(d.date()), "ret": round(float(r * 100), 2), "hold": wstate[d]}
         for d, r in wret.tail(20).iloc[::-1].items()
     ]
 
-    # 最近20个交易日收益 + 当日持有
+    # 最近20个交易日收益 + 当日形态
     daily = [
-        {"date": str(d.date()), "ret": round(float(r * 100), 2),
-         "hold": "bank" if target[d] == "bank" else "cyb"}
+        {"date": str(d.date()), "ret": round(float(r * 100), 2), "hold": state[d]}
         for d, r in ret_strat.tail(20).iloc[::-1].items()
     ]
 
     return {
-        "name": "动量(20日) 轮动",
+        "name": "RSI+动量 共识",
         "dates": dates,
         "strategy": [round(float(v * 100), 2) for v in nav],          # 累计收益率%
         "bank": [round(float(v * 100), 2) for v in nav_bank],
@@ -127,7 +161,7 @@ def momentum_result():
             "period": f"{df.index[0].date()} ~ {df.index[-1].date()}",
         },
         "signal": cur_signal,
-        "holdings": [("bank" if t == "bank" else "cyb") for t in target],
+        "holdings": state.tolist(),
         "weekly": weekly,
         "daily": daily,
     }

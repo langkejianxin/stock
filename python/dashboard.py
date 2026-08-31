@@ -26,7 +26,7 @@ _cache = {"ts": 0.0, "data": None}
 
 def build_data():
     t0 = time.time()
-    r1 = strategy_lib.momentum_result()
+    r1 = strategy_lib.consensus_result()
     r2 = strategy_lib.channel_result()
     return {
         "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),

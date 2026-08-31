@@ -48,6 +48,7 @@
   table.wk td.neg { color: var(--down); font-weight: 700; }
   table.wk td.hold-bank { color: #e67e22; font-weight: 600; }
   table.wk td.hold-cyb { color: #8e44ad; font-weight: 600; }
+  table.wk td.hold-mix { color: #64748b; font-weight: 600; }
   .foot { color: var(--sub); font-size: 12px; text-align: center; margin-top: 8px; }
 </style>
 </head>
@@ -61,7 +62,7 @@
 
   <!-- 策略1: 动量20日轮动 -->
   <div class="card">
-    <h2>策略1 · 动量(20日) 轮动 <span class="tag">512800 银行 vs 159949 创业板50 · 周五信号次周生效</span></h2>
+    <h2>策略1 · RSI+动量 共识（分歧各半） <span class="tag">512800 银行 vs 159949 创业板50 · 两信号一致满仓、分歧各半 · 周五信号次周生效</span></h2>
     <div class="banner mom" id="banner1">计算中…</div>
     <div class="chips" id="chips1"></div>
     <div class="tbls">
@@ -128,10 +129,13 @@ function render(data) {
 
   // ---- 策略1 横幅 ----
   const sg1 = s1.signal;
+  const agree1 = sg1.rsi_win === sg1.mom_win;
   document.getElementById("banner1").innerHTML =
     `<span class="big">当前应持有：${sg1.hold_now}</span><span class="sep">（${sg1.cur_start} 起生效）</span>
      <span class="sep">|</span>
-     信号日 ${sg1.friday}（周五收盘）动量：银行 <b>${pct(sg1.mom_bank)}</b> vs 创业板 <b>${pct(sg1.mom_cyb)}</b>
+     信号日 ${sg1.friday}：RSI 银行 <b>${sg1.rsi_bank}</b> vs 创业板 <b>${sg1.rsi_cyb}</b>（${sg1.rsi_win}胜）
+     · 动量 银行 <b>${pct(sg1.mom_bank)}</b> vs 创业板 <b>${pct(sg1.mom_cyb)}</b>（${sg1.mom_win}胜）
+     <span class="sep">→</span> ${agree1 ? "两信号一致" : "两信号分歧"}
      <span class="sep">|</span>
      上一完整周(${sg1.prev_week})持有：${sg1.prev_hold}`;
 
@@ -146,24 +150,27 @@ function render(data) {
     chip("回测区间", m1.period, "");
 
   // ---- 策略1 周收益表(20周) ----
+  const stateName = h => h === "bank" ? "银行ETF" : h === "cyb" ? "创业板50" : "各持一半";
   document.querySelector("#wk1 tbody").innerHTML = (s1.weekly || []).map(r => {
     const cls = r.ret > 0 ? "pos" : r.ret < 0 ? "neg" : "";
     return `<tr><td>${r.date}</td><td class="num ${cls}">${r.ret > 0 ? "+" : ""}${r.ret.toFixed(2)}%</td>
-            <td class="hold-${r.hold}">${r.hold === "bank" ? "银行ETF" : "创业板50"}</td></tr>`;
+            <td class="hold-${r.hold}">${stateName(r.hold)}</td></tr>`;
   }).join("");
   // ---- 策略1 日收益表(20天) ----
   document.querySelector("#day1 tbody").innerHTML = (s1.daily || []).map(r => {
     const cls = r.ret > 0 ? "pos" : r.ret < 0 ? "neg" : "";
     return `<tr><td>${r.date}</td><td class="num ${cls}">${r.ret > 0 ? "+" : ""}${r.ret.toFixed(2)}%</td>
-            <td class="hold-${r.hold}">${r.hold === "bank" ? "银行ETF" : "创业板50"}</td></tr>`;
+            <td class="hold-${r.hold}">${stateName(r.hold)}</td></tr>`;
   }).join("");
 
-  // ---- 策略1 图(按持仓分段着色 + 底部持仓色条) ----
-  const hold = s1.holdings;                       // ["bank"|"cyb", ...]
+  // ---- 策略1 图(按持仓分段着色 + 底部持仓色条, 三态) ----
+  const hold = s1.holdings;                       // ["bank"|"cyb"|"mix", ...]
   const stBank = s1.strategy.map((v, i) => hold[i] === "bank" ? v : null);
   const stCyb = s1.strategy.map((v, i) => hold[i] === "cyb" ? v : null);
+  const stMix = s1.strategy.map((v, i) => hold[i] === "mix" ? v : null);
   const holdBank = hold.map(h => h === "bank" ? 1 : 0);
   const holdCyb = hold.map(h => h === "cyb" ? 1 : 0);
+  const holdMix = hold.map(h => h === "mix" ? 1 : 0);
   const c1 = echarts.init(document.getElementById("chart1"));
   c1.setOption({
     tooltip: {
@@ -173,6 +180,7 @@ function render(data) {
         for (const it of params) {
           if (it.seriesName === "持仓:银行") { s += "持仓: <b style='color:#e67e22'>银行ETF(512800)</b><br/>"; continue; }
           if (it.seriesName === "持仓:创业板") { s += "持仓: <b style='color:#8e44ad'>创业板50(159949)</b><br/>"; continue; }
+          if (it.seriesName === "持仓:各半") { s += "持仓: <b style='color:#64748b'>各持一半(50/50)</b><br/>"; continue; }
           if (it.value == null) continue;
           if (it.seriesName.startsWith("策略")) s += `${it.marker}${it.seriesName}: <b>${it.value.toFixed(2)}%</b><br/>`;
           else s += `${it.marker}${it.seriesName}: ${it.value.toFixed(2)}%<br/>`;
@@ -180,7 +188,7 @@ function render(data) {
         return s;
       },
     },
-    legend: { data: ["策略(持银行)", "策略(持创业板)", "512800 银行", "159949 创业板"], top: 0 },
+    legend: { data: ["策略(持银行)", "策略(持创业板)", "策略(各半)", "512800 银行", "159949 创业板"], top: 0 },
     grid: [
       { left: 60, right: 20, top: 34, height: "56%" },
       { left: 60, right: 20, top: "72%", height: 24 },
@@ -189,7 +197,7 @@ function render(data) {
       { type: "category", data: s1.dates, boundaryGap: false,
         axisLabel: {
           formatter: (v, i) => `{h${hold[i]}|${v}}`,
-          rich: { hbank: { color: "#e67e22" }, hcyb: { color: "#8e44ad" } },
+          rich: { hbank: { color: "#e67e22" }, hcyb: { color: "#8e44ad" }, hmix: { color: "#64748b" } },
         } },
       { type: "category", gridIndex: 1, data: s1.dates, boundaryGap: false,
         axisLabel: { show: false }, axisTick: { show: false }, axisLine: { show: false } },
@@ -208,6 +216,8 @@ function render(data) {
         lineStyle: { width: 2, color: "#e67e22" }, itemStyle: { color: "#e67e22" }, z: 5 },
       { name: "策略(持创业板)", type: "line", data: stCyb, symbol: "none",
         lineStyle: { width: 2, color: "#8e44ad" }, itemStyle: { color: "#8e44ad" }, z: 5 },
+      { name: "策略(各半)", type: "line", data: stMix, symbol: "none",
+        lineStyle: { width: 2, color: "#64748b" }, itemStyle: { color: "#64748b" }, z: 5 },
       { name: "512800 银行", type: "line", data: s1.bank, symbol: "none",
         lineStyle: { width: 1, color: "#e67e22", opacity: 0.35, type: "dashed" }, itemStyle: { color: "#e67e22" } },
       { name: "159949 创业板", type: "line", data: s1.cyb, symbol: "none",
@@ -216,6 +226,8 @@ function render(data) {
         data: holdBank, barWidth: "100%", itemStyle: { color: "#e67e22" }, z: 3 },
       { name: "持仓:创业板", type: "bar", xAxisIndex: 1, yAxisIndex: 1, stack: "hold",
         data: holdCyb, barWidth: "100%", itemStyle: { color: "#8e44ad" }, z: 3 },
+      { name: "持仓:各半", type: "bar", xAxisIndex: 1, yAxisIndex: 1, stack: "hold",
+        data: holdMix, barWidth: "100%", itemStyle: { color: "#64748b" }, z: 3 },
     ],
   });
 

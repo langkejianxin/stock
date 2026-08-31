@@ -39,34 +39,48 @@ def fmt(x):
     return f"{x:.4f}" if x == x else "NaN"
 
 
-# ============ 策略1: 动量(20日) 轮动 ============
-def signal_momentum():
+# ============ 策略1: RSI+动量 共识(分歧各半) ============
+def signal_consensus():
     bank = load("512800_股票.csv")   # 场内前复权价(周五收盘执行口径)
     cyb = load("159949_股票.csv")
-    b = bank.assign(mom20=bank["close"].pct_change(20))
-    c = cyb.assign(mom20=cyb["close"].pct_change(20))
+
+    def rsi_from_ret(ret, n):
+        gain = ret.clip(lower=0)
+        loss = -ret.clip(upper=0)
+        rs = gain.rolling(n, min_periods=n).mean() / loss.rolling(n, min_periods=n).mean()
+        return 100 - 100 / (1 + rs)
+
+    b = bank.assign(mom20=bank["close"].pct_change(20),
+                    rsi14=rsi_from_ret(bank["close"].pct_change().fillna(0), 14))
+    c = cyb.assign(mom20=cyb["close"].pct_change(20),
+                   rsi14=rsi_from_ret(cyb["close"].pct_change().fillna(0), 14))
     m = b.merge(c, on="date", suffixes=("_bank", "_cyb")).set_index("date")
-    wk = m[["mom20_bank", "mom20_cyb"]].resample("W-FRI").last().dropna()
+    wk = m[["rsi14_bank", "rsi14_cyb", "mom20_bank", "mom20_cyb"]].resample("W-FRI").last().dropna()
     wk = wk[wk.index <= m.index[-1]]  # 只保留完整周(避免把不完整周当信号)
 
-    last = wk.iloc[-1]
-    fri = wk.index[-1].date()
-    mom_b, mom_c = last["mom20_bank"], last["mom20_cyb"]
-    target = "银行ETF(512800)" if mom_b > mom_c else "创业板50ETF(159949)"
-    # 上一完整周的信号(数据里上一周的持仓)
-    prev = wk.iloc[-2]
-    prev_fri = wk.index[-2].date()
-    prev_target = "银行ETF(512800)" if prev["mom20_bank"] > prev["mom20_cyb"] else "创业板50ETF(159949)"
+    def state_of(row):
+        rsi = "银行ETF(512800)" if row["rsi14_bank"] > row["rsi14_cyb"] else "创业板50ETF(159949)"
+        mom = "银行ETF(512800)" if row["mom20_bank"] > row["mom20_cyb"] else "创业板50ETF(159949)"
+        return rsi if rsi == mom else "各持一半(50/50)"
 
-    prev_fri_d = wk.index[-1]  # 上一完整周的周五(prev 信号的生效周)
+    last = wk.iloc[-1]
+    prev = wk.iloc[-2]
+    fri = wk.index[-1].date()
     cur_start = str((wk.index[-1] + pd.Timedelta(days=3)).date())   # 本周一(当前信号生效日)
+    prev_fri_d = wk.index[-1]
     prev_week_range = f"{str((prev_fri_d - pd.Timedelta(days=4)).date())} ~ {str(prev_fri_d.date())}"
 
+    rsi_win = "银行ETF(512800)" if last["rsi14_bank"] > last["rsi14_cyb"] else "创业板50ETF(159949)"
+    mom_win = "银行ETF(512800)" if last["mom20_bank"] > last["mom20_cyb"] else "创业板50ETF(159949)"
+    note = "两信号一致" if rsi_win == mom_win else "两信号分歧"
+
     lines = [
-        "━━━ 策略1: 动量(20日) 轮动 ━━━",
-        f"  最新信号({fri} 周五收盘)  20日动量: 银行 {mom_b*100:+.2f}%  vs  创业板 {mom_c*100:+.2f}%",
-        f"  → 当前应持有: {target}({cur_start} 起生效)",
-        f"  上一完整周({prev_week_range})持有: {prev_target}",
+        "━━━ 策略1: RSI+动量 共识(分歧各半) ━━━",
+        f"  最新信号({fri} 周五收盘):",
+        f"    RSI(14) : 银行 {last['rsi14_bank']:.1f} vs 创业板 {last['rsi14_cyb']:.1f} → {rsi_win}胜",
+        f"    动量(20): 银行 {last['mom20_bank']*100:+.2f}% vs 创业板 {last['mom20_cyb']*100:+.2f}% → {mom_win}胜",
+        f"  {note} → 当前应持有: {state_of(last)}({cur_start} 起生效)",
+        f"  上一完整周({prev_week_range})持有: {state_of(prev)}",
     ]
     return lines
 
@@ -138,7 +152,7 @@ def signal_channel():
 
 def main():
     out = ["# 今日交易信号", f"生成时间: {pd.Timestamp.now():%Y-%m-%d %H:%M}"]
-    out += signal_momentum()
+    out += signal_consensus()
     out += [""]
     out += signal_channel()
     out += ["", "⚠ 仅供策略研究, 不构成投资建议。信号次日生效, 请以收盘净值为准。"]
