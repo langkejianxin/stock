@@ -47,21 +47,26 @@ def signal_momentum():
     c = cyb.assign(mom20=cyb["close"].pct_change(20))
     m = b.merge(c, on="date", suffixes=("_bank", "_cyb")).set_index("date")
     wk = m[["mom20_bank", "mom20_cyb"]].resample("W-FRI").last().dropna()
+    wk = wk[wk.index <= m.index[-1]]  # 只保留完整周(避免把不完整周当信号)
 
     last = wk.iloc[-1]
     fri = wk.index[-1].date()
     mom_b, mom_c = last["mom20_bank"], last["mom20_cyb"]
     target = "银行ETF(512800)" if mom_b > mom_c else "创业板50ETF(159949)"
-    # 信号延迟一周: 本周持仓 = 上周五比较结果
+    # 上一完整周的信号(数据里上一周的持仓)
     prev = wk.iloc[-2]
     prev_fri = wk.index[-2].date()
     prev_target = "银行ETF(512800)" if prev["mom20_bank"] > prev["mom20_cyb"] else "创业板50ETF(159949)"
 
+    prev_fri_d = wk.index[-1]  # 上一完整周的周五(prev 信号的生效周)
+    cur_start = str((wk.index[-1] + pd.Timedelta(days=3)).date())   # 本周一(当前信号生效日)
+    prev_week_range = f"{str((prev_fri_d - pd.Timedelta(days=4)).date())} ~ {str(prev_fri_d.date())}"
+
     lines = [
         "━━━ 策略1: 动量(20日) 轮动 ━━━",
-        f"  最近周五({fri})  20日动量: 银行 {mom_b*100:+.2f}%  vs  创业板 {mom_c*100:+.2f}%",
-        f"  上周五({prev_fri})信号(本周生效): 持有 {prev_target}",
-        f"  → 下周信号(本周五收盘后确定): 倾向 {target}",
+        f"  最新信号({fri} 周五收盘)  20日动量: 银行 {mom_b*100:+.2f}%  vs  创业板 {mom_c*100:+.2f}%",
+        f"  → 当前应持有: {target}({cur_start} 起生效)",
+        f"  上一完整周({prev_week_range})持有: {prev_target}",
     ]
     return lines
 

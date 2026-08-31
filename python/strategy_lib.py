@@ -47,6 +47,7 @@ def momentum_result():
 
     # 周五收盘比较 20 日动量 -> 信号延迟一周生效
     wk = df[["mom20_bank", "mom20_cyb"]].resample("W-FRI").last()
+    wk = wk[wk.index <= df.index[-1]]  # 只保留完整周(周五标签不晚于数据末日, 避免把不完整周当信号)
     sig_weekly = pd.Series(
         np.where(wk["mom20_bank"] > wk["mom20_cyb"], "bank", "cyb"), index=wk.index
     )
@@ -67,28 +68,40 @@ def momentum_result():
     sharpe = ret_strat.mean() / ret_strat.std() * math.sqrt(252) if ret_strat.std() > 0 else 0.0
     switches = int((target != target.shift()).sum() - 1)
 
-    # 当前信号(与 daily_signal 一致)
+    # 当前信号: 最新完整周五的比较结果 = 本周(周一生效)应持有的标的
     wkl = wk.dropna()
     last = wkl.iloc[-1]
     prev = wkl.iloc[-2]
     cur_target = "bank" if last["mom20_bank"] > last["mom20_cyb"] else "cyb"
+    prev_fri = wkl.index[-1]  # 上一完整周的周五(08-28): prev 信号的生效周
     cur_signal = {
         "friday": str(wkl.index[-1].date()),
         "mom_bank": round(float(last["mom20_bank"]) * 100, 2),
         "mom_cyb": round(float(last["mom20_cyb"]) * 100, 2),
-        "next_target": "银行ETF(512800)" if cur_target == "bank" else "创业板50ETF(159949)",
-        "current_hold": "银行ETF(512800)" if prev["mom20_bank"] > prev["mom20_cyb"] else "创业板50ETF(159949)",
+        "hold_now": "创业板50ETF(159949)" if cur_target == "cyb" else "银行ETF(512800)",
+        "cur_start": str((wkl.index[-1] + pd.Timedelta(days=3)).date()),  # 本周一(信号次周生效)
+        "prev_week": f"{str((prev_fri - pd.Timedelta(days=4)).date())} ~ {str(prev_fri.date())}",
+        "prev_hold": "创业板50ETF(159949)" if prev["mom20_bank"] <= prev["mom20_cyb"] else "银行ETF(512800)",
     }
 
     dates = [d.strftime("%Y-%m-%d") for d in df.index]
 
-    # 最近10周周收益(按策略实际持仓复利) + 当周持有标的
+    # 最近20周周收益(按策略实际持仓复利) + 当周持有标的
     wret = (1 + ret_strat).resample("W-FRI").prod() - 1
     whold = target.resample("W-FRI").last()
+    wret = wret[wret.index <= df.index[-1]]      # 去掉不完整周
+    whold = whold[whold.index <= df.index[-1]]
     weekly = [
         {"date": str(d.date()), "ret": round(float(r * 100), 2),
          "hold": "bank" if whold[d] == "bank" else "cyb"}
-        for d, r in wret.tail(10).iloc[::-1].items()
+        for d, r in wret.tail(20).iloc[::-1].items()
+    ]
+
+    # 最近20个交易日收益 + 当日持有
+    daily = [
+        {"date": str(d.date()), "ret": round(float(r * 100), 2),
+         "hold": "bank" if target[d] == "bank" else "cyb"}
+        for d, r in ret_strat.tail(20).iloc[::-1].items()
     ]
 
     return {
@@ -108,6 +121,7 @@ def momentum_result():
         "signal": cur_signal,
         "holdings": [("bank" if t == "bank" else "cyb") for t in target],
         "weekly": weekly,
+        "daily": daily,
     }
 
 
@@ -202,11 +216,16 @@ def channel_result():
 
     vis_idx = np.where(vis.values)[0]
 
-    # 最近10周周收益(策略按持仓复利)
+    # 最近20周周收益(策略按持仓复利)
     r_ser = pd.Series(r_strat, index=df["date"])
     wret = (1 + r_ser).resample("W-FRI").prod() - 1
+    wret = wret[wret.index <= df["date"].iloc[-1]]  # 去掉不完整周
     weekly = [{"date": str(d.date()), "ret": round(float(r * 100), 2)}
-              for d, r in wret.tail(10).iloc[::-1].items()]
+              for d, r in wret.tail(20).iloc[::-1].items()]
+
+    # 最近20个交易日收益
+    daily = [{"date": str(d.date()), "ret": round(float(r * 100), 2)}
+             for d, r in r_ser.tail(20).iloc[::-1].items()]
 
     return {
         "name": "滚500·95%分位通道",
@@ -227,6 +246,7 @@ def channel_result():
         "buys": buys,
         "sells": sells,
         "weekly": weekly,
+        "daily": daily,
         "current": {
             "date": str(df["date"].iloc[-1].date()),
             "nav": round(float(cur), 4),
