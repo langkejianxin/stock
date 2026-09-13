@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 当前交易信号(读取本地 CSV 最新数据, 复刻两个策略的精确算法):
-  策略1: 动量(20日) 轮动  —— 512800 银行ETF vs 159949 创业板50ETF, 周五比较、次周生效
+  策略1: RSI(14)×动量(20) 共识 + 确认2周 —— 512800 银行ETF vs 159949 创业板50ETF
+         周五比较、次周生效; 新状态(满仓/各半)须被信号连续两周提出才切换
   策略2: 滚500·95%分位通道 —— 510880 红利ETF, 每日判定 累计净值 相对上下轨
 
 用法: /opt/homebrew/bin/python3.9 signal.py
@@ -39,10 +40,10 @@ def fmt(x):
     return f"{x:.4f}" if x == x else "NaN"
 
 
-# ============ 策略1: RSI+动量 共识(分歧各半) ============
+# ============ 策略1: RSI+动量 共识 + 确认2周 (V1) ============
 def signal_consensus():
-    bank = load("512800_股票.csv")   # 场内前复权价(周五收盘执行口径)
-    cyb = load("159949_股票.csv")
+    bank = load("512800_基金净值.csv")   # 基金累计净值
+    cyb = load("159949_基金净值.csv")
 
     def rsi_from_ret(ret, n):
         gain = ret.clip(lower=0)
@@ -55,32 +56,77 @@ def signal_consensus():
     c = cyb.assign(mom20=cyb["close"].pct_change(20),
                    rsi14=rsi_from_ret(cyb["close"].pct_change().fillna(0), 14))
     m = b.merge(c, on="date", suffixes=("_bank", "_cyb")).set_index("date")
+    m = m[m.index >= pd.Timestamp("2017-09-01")]          # 对齐策略1回测起点
     wk = m[["rsi14_bank", "rsi14_cyb", "mom20_bank", "mom20_cyb"]].resample("W-FRI").last().dropna()
     wk = wk[wk.index <= m.index[-1]]  # 只保留完整周(避免把不完整周当信号)
-
     def state_of(row):
-        rsi = "银行ETF(512800)" if row["rsi14_bank"] > row["rsi14_cyb"] else "创业板50ETF(159949)"
-        mom = "银行ETF(512800)" if row["mom20_bank"] > row["mom20_cyb"] else "创业板50ETF(159949)"
-        return rsi if rsi == mom else "各持一半(50/50)"
+        rsi = "bank" if row["rsi14_bank"] > row["rsi14_cyb"] else "cyb"
+        mom = "bank" if row["mom20_bank"] > row["mom20_cyb"] else "cyb"
+        return rsi if rsi == mom else "mix"
+
+    # ---- 确认2周状态机(对齐 strategy_lib.consensus_result / 策略文档) ----
+    sig_rsi = (wk["rsi14_bank"] > wk["rsi14_cyb"]).map({True: "bank", False: "cyb"})
+    sig_mom = (wk["mom20_bank"] > wk["mom20_cyb"]).map({True: "bank", False: "cyb"})
+    sig_rsi.index = sig_rsi.index.to_period("W-FRI")
+    sig_mom.index = sig_mom.index.to_period("W-FRI")
+    stw = pd.Series(np.where(sig_rsi.values == sig_mom.values, sig_rsi.values,
+                             np.full(len(sig_rsi), "mix")), index=sig_rsi.index)
+    _out, _cur, _prev = [], "cyb", None
+    for _w in stw.index:
+        _prop = stw[_w]
+        if _prop != _cur and _prop == _prev:   # 新状态连续两周被提出才切换
+            _cur = _prop
+        _prev = _prop
+        _out.append(_cur)
+    stw_v1 = pd.Series(_out, index=stw.index)
+    # 逐日实际持仓(延迟一周生效, 与 strategy_lib 一致)
+    m["week"] = m.index.to_period("W-FRI")
+    t = m["week"].map(stw_v1.shift(1)).ffill().fillna("cyb")
+    cur_hold = t.iloc[-1]                        # 最新交易日实际持仓
+    # 当前持仓状态段的起始交易日
+    _sv = t.values
+    _start_i = 0
+    for _i in range(len(_sv) - 1, 0, -1):
+        if _sv[_i] != _sv[_i - 1]:
+            _start_i = _i
+            break
+    cur_start = str(t.index[_start_i].date())
 
     last = wk.iloc[-1]
     prev = wk.iloc[-2]
     fri = wk.index[-1].date()
-    cur_start = str((wk.index[-1] + pd.Timedelta(days=3)).date())   # 本周一(当前信号生效日)
-    prev_fri_d = wk.index[-1]
+    prev_fri_d = wk.index[-2]
     prev_week_range = f"{str((prev_fri_d - pd.Timedelta(days=4)).date())} ~ {str(prev_fri_d.date())}"
 
     rsi_win = "银行ETF(512800)" if last["rsi14_bank"] > last["rsi14_cyb"] else "创业板50ETF(159949)"
     mom_win = "银行ETF(512800)" if last["mom20_bank"] > last["mom20_cyb"] else "创业板50ETF(159949)"
-    note = "两信号一致" if rsi_win == mom_win else "两信号分歧"
+    prop_now = state_of(last)                    # 本周提案(与当前持仓比较, 判断是否连续两周)
+    prop_name = {"bank": "银行ETF(512800)", "cyb": "创业板50ETF(159949)", "mix": "各持一半(50/50)"}[prop_now]
+    hold_now = {"bank": "银行ETF(512800)", "cyb": "创业板50ETF(159949)", "mix": "各持一半(50/50)"}[cur_hold]
+    # 提案连续提出周数
+    _s2 = list(stw.values)
+    _streak2 = 1
+    for _i in range(len(_s2) - 2, -1, -1):
+        if _s2[_i] == _s2[-1]:
+            _streak2 += 1
+        else:
+            break
+    confirm_note = (f"提案 {prop_name} 已连续提出 {_streak2} 周"
+                    + (" → 下一周将切换" if _streak2 >= 2 and prop_now != cur_hold else
+                       " → 仍待确认(须再连续一周)" if prop_now != cur_hold else
+                       " → 与当前一致, 无需切换"))
 
+    # 上一完整周(prev_fri)当天的实际持仓(从逐日 t 取)
+    _prev_hold = t.asof(pd.Timestamp(prev_fri_d))
+    _prev_hold_name = {"bank": "银行ETF(512800)", "cyb": "创业板50ETF(159949)", "mix": "各持一半(50/50)"}[_prev_hold]
     lines = [
-        "━━━ 策略1: RSI+动量 共识(分歧各半) ━━━",
+        "━━━ 策略1: RSI+动量 共识 + 确认2周 ━━━",
         f"  最新信号({fri} 周五收盘):",
         f"    RSI(14) : 银行 {last['rsi14_bank']:.1f} vs 创业板 {last['rsi14_cyb']:.1f} → {rsi_win}胜",
         f"    动量(20): 银行 {last['mom20_bank']*100:+.2f}% vs 创业板 {last['mom20_cyb']*100:+.2f}% → {mom_win}胜",
-        f"  {note} → 当前应持有: {state_of(last)}({cur_start} 起生效)",
-        f"  上一完整周({prev_week_range})持有: {state_of(prev)}",
+        f"  共识提案: {prop_name} · 当前应持有: {hold_now}({cur_start} 起生效)",
+        f"  {confirm_note}",
+        f"  上一完整周({prev_week_range})持有: {_prev_hold_name}",
     ]
     return lines
 

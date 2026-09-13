@@ -1,0 +1,11 @@
+[Unit]
+Description=ETF 每日净值抓取 + 今日信号生成
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/stock
+ExecStart=/opt/stock/python/run_daily.sh
+StandardOutput=append:/opt/stock/logs/daily.log
+StandardError=append:/opt/stock/logs/daily.log

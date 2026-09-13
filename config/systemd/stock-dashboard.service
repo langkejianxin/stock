@@ -1,0 +1,21 @@
+[Unit]
+Description=ETF 策略监控台 (dashboard, 端口 8756)
+Documentation=file:/opt/stock/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/stock/python
+Environment=STOCK_BIND=0.0.0.0
+Environment=STOCK_PORT=8756
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3.8 /opt/stock/python/dashboard.py 8756
+Restart=always
+RestartSec=3
+# 日志(可用 journalctl -u stock-dashboard -f 查看)
+StandardOutput=append:/opt/stock/logs/dashboard.log
+StandardError=append:/opt/stock/logs/dashboard.log
+
+[Install]
+WantedBy=multi-user.target

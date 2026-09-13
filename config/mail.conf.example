@@ -1,0 +1,20 @@
+# ===== 平台访问链接邮件配置(模板) =====
+# 用法: cp mail.conf.example mail.conf 然后填入自己的信息
+# 本文件不含任何真实凭据, 可安全提交; mail.conf 已加入 .gitignore
+#
+# 由 send_token_mail.py 读取; 每行 key = value, '#' 后为注释
+
+# --- SMTP 发件账号(QQ 邮箱, 用"授权码"而非登录密码) ---
+# 授权码获取: QQ邮箱 → 设置 → 账户 → POP3/IMAP/SMTP服务 → 生成授权码
+smtp_host = smtp.qq.com
+smtp_port = 465
+user = your_sender@qq.com
+auth_code = your_smtp_auth_code
+
+# --- 收件人(可以就是发件人自己) ---
+to = your_inbox@qq.com
+
+# --- 邮件里链接使用的公网地址(有域名就填域名) ---
+public_host = your.server.ip.or.domain
+port = 8756
+scheme = http

@@ -49,7 +49,24 @@
   table.wk td.hold-bank { color: #e67e22; font-weight: 600; }
   table.wk td.hold-cyb { color: #8e44ad; font-weight: 600; }
   table.wk td.hold-mix { color: #64748b; font-weight: 600; }
+  #signalModal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,.45);
+    align-items: center; justify-content: center; z-index: 999; }
+  .modal-card { background: #fff; border-radius: 12px; padding: 18px 22px; min-width: 300px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.25); position: relative; }
+  .modal-card h3 { margin-bottom: 10px; }
+  .modal-card .muted { color: var(--sub); font-size: 12px; margin-top: 10px; }
+  .modal-close { position: absolute; top: 8px; right: 12px; border: none; background: none;
+    font-size: 20px; cursor: pointer; color: var(--sub); }
   .foot { color: var(--sub); font-size: 12px; text-align: center; margin-top: 8px; }
+  .rangebar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 14px; }
+  .rangebar .rb-label { color: var(--sub); font-size: 13px; margin-right: 2px; }
+  .rangebar .rb-sep { color: var(--line); margin: 0 6px; }
+  .rq { padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff;
+    cursor: pointer; color: var(--txt); font-size: 12.5px; }
+  .rq:hover { border-color: var(--accent); color: var(--accent); }
+  .rq.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  .rangebar input[type="date"] { border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px;
+    font-size: 12.5px; color: var(--txt); }
 </style>
 </head>
 <body>
@@ -62,7 +79,7 @@
 
   <!-- 策略1: 动量20日轮动 -->
   <div class="card">
-    <h2>策略1 · RSI+动量 共识（分歧各半） <span class="tag">512800 银行 vs 159949 创业板50 · 两信号一致满仓、分歧各半 · 周五信号次周生效</span></h2>
+    <h2>策略1 · RSI+动量 共识 + 确认2周 <span class="tag">512800 银行 vs 159949 创业板50 · 两信号一致满仓、分歧各半 · 新状态须连续两周提出才切换 · 周五信号次周生效</span></h2>
     <div class="banner mom" id="banner1">计算中…</div>
     <div class="chips" id="chips1"></div>
     <div class="tbls">
@@ -80,6 +97,19 @@
           <tbody></tbody>
         </table>
       </div>
+    </div>
+    <div class="rangebar" data-target="c1">
+      <span class="rb-label">📈 收益曲线时间范围：</span>
+      <button class="rq active" data-kind="all">全部</button>
+      <button class="rq" data-kind="year">本年</button>
+      <button class="rq" data-kind="6m">近6月</button>
+      <button class="rq" data-kind="3m">近3月</button>
+      <button class="rq" data-kind="1m">近1月</button>
+      <button class="rq" data-kind="half">半月</button>
+      <button class="rq" data-kind="1w">近1周</button>
+      <span class="rb-sep">|</span>
+      <input type="date" id="start-c1"><span> ~ </span><input type="date" id="end-c1">
+      <button class="rq" id="apply-c1">确定</button>
     </div>
     <div class="chart" id="chart1"></div>
   </div>
@@ -106,17 +136,45 @@
       </div>
     </div>
     <div class="sub">📈 收益曲线（2019 起 · 起点归零）</div>
+    <div class="rangebar" data-target="c2r">
+      <span class="rb-label">📈 收益曲线时间范围：</span>
+      <button class="rq active" data-kind="all">全部</button>
+      <button class="rq" data-kind="year">本年</button>
+      <button class="rq" data-kind="6m">近6月</button>
+      <button class="rq" data-kind="3m">近3月</button>
+      <button class="rq" data-kind="1m">近1月</button>
+      <button class="rq" data-kind="half">半月</button>
+      <button class="rq" data-kind="1w">近1周</button>
+      <span class="rb-sep">|</span>
+      <input type="date" id="start-c2r"><span> ~ </span><input type="date" id="end-c2r">
+      <button class="rq" id="apply-c2r">确定</button>
+    </div>
     <div class="chart" id="chart2r"></div>
     <div class="sub">累计净值 + 滚动500日通道（红▲买入 / 绿▼卖出）</div>
     <div class="chart" id="chart2"></div>
   </div>
 
+  <!-- 每年收益(累计净值口径) -->
+  <div class="card">
+    <h2>📊 每年收益 <span class="tag">当年每天收益率相加 · 不复利(与累计曲线同口径)</span></h2>
+    <table class="wk" id="annualTbl" style="max-width: 560px;">
+      <thead><tr><th>年份</th><th>策略1 共识+确认2周</th><th>策略2 通道</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
   <div class="foot">数据来自本地基金净值 CSV（每日 20:30 自动更新）· 仅供研究，不构成投资建议</div>
 </div>
+
+<div id="signalModal"></div>
 
 <script>
 const fmt = (v, d = 2) => Number(v).toFixed(d);
 const pct = v => (v > 0 ? "+" : "") + fmt(v) + "%";
+
+// 图表实例与日期基准(按 id 索引, 供"收益率曲线"专属时间范围使用)
+const _charts = {};        // { c1:{chart,dates}, c2r:{...}, c2:{...} }
+let _latestDate = null;    // 最新交易日(用于快捷选项的"终点")
 
 function chip(k, v, cls = "") {
   return `<div class="chip"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`;
@@ -124,18 +182,25 @@ function chip(k, v, cls = "") {
 
 function render(data) {
   const { strategy1: s1, strategy2: s2 } = data;
+  _charts.c1 = _charts.c2r = _charts.c2 = null;
+  _latestDate = s2.current.date || (s1.dates[s1.dates.length-1]);
   document.getElementById("meta").textContent =
     `更新时间 ${data.updated_at} · 计算耗时 ${data.computed_ms}ms · 数据截至 ${s2.current.date}`;
 
   // ---- 策略1 横幅 ----
   const sg1 = s1.signal;
   const agree1 = sg1.rsi_win === sg1.mom_win;
+  // 确认状态提示: 提案与当前一致 -> 无需切换; 提案已连续2周且不同 -> 下周切换; 否则待确认
+  const streak = sg1.prop_streak || 1;
+  const confirmText = sg1.hold_now_code === sg1.prop_now
+    ? "与当前一致"
+    : (streak >= 2 ? "连续2周提出 → 下周切换" : `连续${streak}周提出 → 待确认`);
   document.getElementById("banner1").innerHTML =
     `<span class="big">当前应持有：${sg1.hold_now}</span><span class="sep">（${sg1.cur_start} 起生效）</span>
      <span class="sep">|</span>
      信号日 ${sg1.friday}：RSI 银行 <b>${sg1.rsi_bank}</b> vs 创业板 <b>${sg1.rsi_cyb}</b>（${sg1.rsi_win}胜）
      · 动量 银行 <b>${pct(sg1.mom_bank)}</b> vs 创业板 <b>${pct(sg1.mom_cyb)}</b>（${sg1.mom_win}胜）
-     <span class="sep">→</span> ${agree1 ? "两信号一致" : "两信号分歧"}
+     <span class="sep">→</span> 共识提案：${sg1.prop_now_name}（${confirmText}）
      <span class="sep">|</span>
      上一完整周(${sg1.prev_week})持有：${sg1.prev_hold}`;
 
@@ -163,28 +228,66 @@ function render(data) {
             <td class="hold-${r.hold}">${stateName(r.hold)}</td></tr>`;
   }).join("");
 
-  // ---- 策略1 图(按持仓分段着色 + 底部持仓色条, 三态) ----
+  // ---- 策略1 图(按持仓分段着色 + 底部持仓色条, 三态; 放大时从窗口左侧归零) ----
   const hold = s1.holdings;                       // ["bank"|"cyb"|"mix", ...]
-  const stBank = s1.strategy.map((v, i) => hold[i] === "bank" ? v : null);
-  const stCyb = s1.strategy.map((v, i) => hold[i] === "cyb" ? v : null);
-  const stMix = s1.strategy.map((v, i) => hold[i] === "mix" ? v : null);
   const holdBank = hold.map(h => h === "bank" ? 1 : 0);
   const holdCyb = hold.map(h => h === "cyb" ? 1 : 0);
   const holdMix = hold.map(h => h === "mix" ? 1 : 0);
+  // 以数据下标 i0 为基准归零(简单口径: 相减), 策略/基准曲线均从 i0 起算 0%
+  function series1(i0) {
+    const base = s1.strategy[i0], bBase = s1.bank[i0], cBase = s1.cyb[i0];
+    const seg = flag => s1.strategy.map((v, i) => hold[i] === flag ? +(v - base).toFixed(2) : null);
+    return [
+      { name: "策略(持银行)", type: "line", data: seg("bank"), symbol: "none",
+        lineStyle: { width: 2, color: "#e67e22" }, itemStyle: { color: "#e67e22" }, z: 5 },
+      { name: "策略(持创业板)", type: "line", data: seg("cyb"), symbol: "none",
+        lineStyle: { width: 2, color: "#8e44ad" }, itemStyle: { color: "#8e44ad" }, z: 5 },
+      { name: "策略(各半)", type: "line", data: seg("mix"), symbol: "none",
+        lineStyle: { width: 2, color: "#64748b" }, itemStyle: { color: "#64748b" }, z: 5 },
+      { name: "512800 银行", type: "line", data: s1.bank.map(v => +(v - bBase).toFixed(2)), symbol: "none",
+        lineStyle: { width: 1, color: "#e67e22", opacity: 0.35, type: "dashed" }, itemStyle: { color: "#e67e22" } },
+      { name: "159949 创业板", type: "line", data: s1.cyb.map(v => +(v - cBase).toFixed(2)), symbol: "none",
+        lineStyle: { width: 1, color: "#8e44ad", opacity: 0.35, type: "dashed" }, itemStyle: { color: "#8e44ad" } },
+      { name: "持仓:银行", type: "bar", xAxisIndex: 1, yAxisIndex: 1, stack: "hold",
+        data: holdBank, barWidth: "100%", itemStyle: { color: "#e67e22" }, z: 3 },
+      { name: "持仓:创业板", type: "bar", xAxisIndex: 1, yAxisIndex: 1, stack: "hold",
+        data: holdCyb, barWidth: "100%", itemStyle: { color: "#8e44ad" }, z: 3 },
+      { name: "持仓:各半", type: "bar", xAxisIndex: 1, yAxisIndex: 1, stack: "hold",
+        data: holdMix, barWidth: "100%", itemStyle: { color: "#64748b" }, z: 3 },
+    ];
+  }
+  // 放大/缩放后: 取窗口最左侧下标 i0, 曲线以 i0 为基准归零, 纵轴从 0 起
+  function rebaseByZoom(chart, dates, buildSeries) {
+    chart.off("datazoom");
+    chart.on("datazoom", function (params) {
+      const batch = (params.batch && params.batch[0]) || params;
+      const p0 = batch.start == null ? 0 : batch.start;
+      const n = dates.length;
+      const i0 = Math.max(0, Math.min(n - 1, Math.round(n * p0 / 100)));
+      chart.setOption({ series: buildSeries(i0) }, { lazyUpdate: true });
+    });
+  }
   const c1 = echarts.init(document.getElementById("chart1"));
   c1.setOption({
     tooltip: {
       trigger: "axis", axisPointer: { type: "cross" },
       formatter: (params) => {
         let s = params[0].axisValue + "<br/>";
+        let activeHold = "";
         for (const it of params) {
-          if (it.seriesName === "持仓:银行") { s += "持仓: <b style='color:#e67e22'>银行ETF(512800)</b><br/>"; continue; }
-          if (it.seriesName === "持仓:创业板") { s += "持仓: <b style='color:#8e44ad'>创业板50(159949)</b><br/>"; continue; }
-          if (it.seriesName === "持仓:各半") { s += "持仓: <b style='color:#64748b'>各持一半(50/50)</b><br/>"; continue; }
+          // 持仓色条: 只显示真正持仓(值为1)的那一条
+          if (it.seriesName === "持仓:银行" || it.seriesName === "持仓:创业板" || it.seriesName === "持仓:各半") {
+            if (it.value === 1) {
+              activeHold = it.seriesName === "持仓:银行" ? "银行ETF(512800)"
+                         : it.seriesName === "持仓:创业板" ? "创业板50(159949)" : "各持一半(50/50)";
+            }
+            continue;
+          }
           if (it.value == null) continue;
           if (it.seriesName.startsWith("策略")) s += `${it.marker}${it.seriesName}: <b>${it.value.toFixed(2)}%</b><br/>`;
           else s += `${it.marker}${it.seriesName}: ${it.value.toFixed(2)}%<br/>`;
         }
+        if (activeHold) s += `持仓: <b>${activeHold}</b>`;
         return s;
       },
     },
@@ -211,25 +314,10 @@ function render(data) {
       { type: "slider", xAxisIndex: [0, 1], height: 16, bottom: 8 },
     ],
     axisPointer: { link: [{ xAxisIndex: "all" }] },
-    series: [
-      { name: "策略(持银行)", type: "line", data: stBank, symbol: "none",
-        lineStyle: { width: 2, color: "#e67e22" }, itemStyle: { color: "#e67e22" }, z: 5 },
-      { name: "策略(持创业板)", type: "line", data: stCyb, symbol: "none",
-        lineStyle: { width: 2, color: "#8e44ad" }, itemStyle: { color: "#8e44ad" }, z: 5 },
-      { name: "策略(各半)", type: "line", data: stMix, symbol: "none",
-        lineStyle: { width: 2, color: "#64748b" }, itemStyle: { color: "#64748b" }, z: 5 },
-      { name: "512800 银行", type: "line", data: s1.bank, symbol: "none",
-        lineStyle: { width: 1, color: "#e67e22", opacity: 0.35, type: "dashed" }, itemStyle: { color: "#e67e22" } },
-      { name: "159949 创业板", type: "line", data: s1.cyb, symbol: "none",
-        lineStyle: { width: 1, color: "#8e44ad", opacity: 0.35, type: "dashed" }, itemStyle: { color: "#8e44ad" } },
-      { name: "持仓:银行", type: "bar", xAxisIndex: 1, yAxisIndex: 1, stack: "hold",
-        data: holdBank, barWidth: "100%", itemStyle: { color: "#e67e22" }, z: 3 },
-      { name: "持仓:创业板", type: "bar", xAxisIndex: 1, yAxisIndex: 1, stack: "hold",
-        data: holdCyb, barWidth: "100%", itemStyle: { color: "#8e44ad" }, z: 3 },
-      { name: "持仓:各半", type: "bar", xAxisIndex: 1, yAxisIndex: 1, stack: "hold",
-        data: holdMix, barWidth: "100%", itemStyle: { color: "#64748b" }, z: 3 },
-    ],
+    series: series1(0),
   });
+  rebaseByZoom(c1, s1.dates, series1);
+  _charts.c1 = { chart: c1, dates: s1.dates };
 
   // ---- 策略2 横幅 ----
   const cur = s2.current;
@@ -264,10 +352,32 @@ function render(data) {
     return `<tr><td>${r.date}</td><td class="num ${cls}">${r.ret > 0 ? "+" : ""}${r.ret.toFixed(2)}%</td></tr>`;
   }).join("");
 
-  // ---- 策略2 收益曲线图(起点归零) ----
-  const baseS = s2.strategy_nav[0], baseB = s2.bh_nav[0];
-  const retS = s2.strategy_nav.map(v => +(v / baseS * 100 - 100).toFixed(2));
-  const retB = s2.bh_nav.map(v => +(v / baseB * 100 - 100).toFixed(2));
+  // ---- 每年收益(累计净值口径) ----
+  if (data.annual) {
+    const a1 = {}, a2 = {};
+    (data.annual.strategy1 || []).forEach(r => a1[r.year] = r.ret);
+    (data.annual.strategy2 || []).forEach(r => a2[r.year] = r.ret);
+    const years = [...new Set([...Object.keys(a1), ...Object.keys(a2)])].sort();
+    const cell = (v, has) => has
+      ? `<td class="num ${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${v > 0 ? "+" : ""}${Number(v).toFixed(2)}%</td>`
+      : "<td>—</td>";
+    document.querySelector("#annualTbl tbody").innerHTML = years
+      .map(y => `<tr><td>${y}</td>${cell(a1[y], y in a1)}${cell(a2[y], y in a2)}</tr>`)
+      .join("");
+  }
+
+  // ---- 策略2 收益曲线图(起点归零, 不复利; 放大时从窗口左侧归零) ----
+  function series2r(i0) {
+    const sBase = s2.strategy_nav[i0], bBase = s2.bh_nav[i0];
+    return [
+      { name: "策略(滚500·95%分位)", type: "line", symbol: "none",
+        data: s2.strategy_nav.map(v => +(v - sBase).toFixed(2)),
+        lineStyle: { width: 2, color: "#16a34a" }, itemStyle: { color: "#16a34a" } },
+      { name: "一直持有", type: "line", symbol: "none",
+        data: s2.bh_nav.map(v => +(v - bBase).toFixed(2)),
+        lineStyle: { width: 1.2, color: "#9ca3af" }, itemStyle: { color: "#9ca3af" } },
+    ];
+  }
   const c2r = echarts.init(document.getElementById("chart2r"));
   c2r.setOption({
     tooltip: { trigger: "axis", valueFormatter: v => (v == null ? "-" : v.toFixed(2) + "%") },
@@ -276,17 +386,24 @@ function render(data) {
     xAxis: { type: "category", data: s2.dates, boundaryGap: false },
     yAxis: { type: "value", name: "累计收益率 %" },
     dataZoom: [{ type: "inside" }, { type: "slider", height: 16, bottom: 8 }],
-    series: [
-      { name: "策略(滚500·95%分位)", type: "line", data: retS, symbol: "none",
-        lineStyle: { width: 2, color: "#16a34a" }, itemStyle: { color: "#16a34a" } },
-      { name: "一直持有", type: "line", data: retB, symbol: "none",
-        lineStyle: { width: 1.2, color: "#9ca3af" }, itemStyle: { color: "#9ca3af" } },
-    ],
+    series: series2r(0),
   });
+  rebaseByZoom(c2r, s2.dates, series2r);
+  _charts.c2r = { chart: c2r, dates: s2.dates };
 
-  // ---- 策略2 图 ----
+  // ---- 策略2 图(通道 + 买卖点竖线, 点击看详情) ----
   const buys = s2.buys.map(b => [b.date, b.value]);
   const sells = s2.sells.map(b => [b.date, b.value]);
+  const markBuy = s2.buys.map(b => ({
+    xAxis: b.date, name: "买入", value: b.value,
+    lineStyle: { color: "#c0392b", type: "dashed", width: 1.5 },
+    label: { show: true, formatter: `▲ ${b.value}`, position: "insideEndTop", color: "#c0392b", fontSize: 10 },
+  }));
+  const markSell = s2.sells.map(b => ({
+    xAxis: b.date, name: "卖出", value: b.value,
+    lineStyle: { color: "#27ae60", type: "dashed", width: 1.5 },
+    label: { show: true, formatter: `▼ ${b.value}`, position: "insideEndBottom", color: "#27ae60", fontSize: 10 },
+  }));
   const c2 = echarts.init(document.getElementById("chart2"));
   c2.setOption({
     tooltip: { trigger: "axis", valueFormatter: v => (v == null ? "-" : Number(v).toFixed(4)) },
@@ -297,7 +414,8 @@ function render(data) {
     dataZoom: [{ type: "inside" }, { type: "slider", height: 16, bottom: 8 }],
     series: [
       { name: "累计净值", type: "line", data: s2.nav, symbol: "none",
-        lineStyle: { width: 2, color: "#2c3e50" }, itemStyle: { color: "#2c3e50" }, z: 5 },
+        lineStyle: { width: 2, color: "#2c3e50" }, itemStyle: { color: "#2c3e50" }, z: 5,
+        markLine: { silent: false, symbol: "none", data: [...markBuy, ...markSell] } },
       { name: "上轨", type: "line", data: s2.up, symbol: "none",
         lineStyle: { width: 1, color: "#e74c3c", type: "dashed" } },
       { name: "中轨", type: "line", data: s2.mid, symbol: "none",
@@ -310,6 +428,98 @@ function render(data) {
         symbolSize: 11, itemStyle: { color: "#27ae60" }, z: 10 },
     ],
   });
+  // 点击买卖点竖线/标记 -> 弹出详情
+  c2.on("click", (p) => {
+    let date = null, kind = null;
+    if (p.componentType === "markLine") { date = String(p.value); }
+    else if (p.componentType === "series" && (p.seriesName === "买入" || p.seriesName === "卖出")) {
+      date = String(p.value[0]); kind = p.seriesName;
+    }
+    if (!date) return;
+    const b = s2.buys.find(x => x.date === date);
+    const s = s2.sells.find(x => x.date === date);
+    if (b) showSignalModal("买入", b.date, b.value, "下轨", b.band);
+    else if (s) showSignalModal("卖出", s.date, s.value, "上轨", s.band);
+  });
+  _charts.c2 = { chart: c2, dates: s2.dates };
+}
+
+// ---------- 时间范围选择 ----------
+function nearestIdx(dates, ds) {
+  // 找到 >= ds 的最近下标(用于起点)
+  for (let i = 0; i < dates.length; i++) if (dates[i] >= ds) return i;
+  return dates.length - 1;
+}
+function nearestIdxEnd(dates, ds) {
+  // 找到 <= ds 的最近下标(用于终点)
+  for (let i = dates.length - 1; i >= 0; i--) if (dates[i] <= ds) return i;
+  return 0;
+}
+function addDays(ds, n) { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+function addMonths(ds, n) { const d = new Date(ds + "T00:00:00"); d.setMonth(d.getMonth() + n); return d.toISOString().slice(0, 10); }
+
+// ---- 每个"收益率曲线"专属时间范围: 只控制它自己的图 ----
+function applyRange(target, startDate, endDate) {
+  const obj = _charts[target];
+  if (!obj) return;
+  const { chart, dates } = obj;
+  if (!startDate || !endDate) { chart.dispatchAction({ type: "dataZoom", start: 0, end: 100 }); return; }
+  const i0 = nearestIdx(dates, startDate);
+  const i1 = nearestIdxEnd(dates, endDate);
+  if (i0 >= i1) return;
+  chart.dispatchAction({ type: "dataZoom", start: i0 / dates.length * 100, end: (i1 + 1) / dates.length * 100 });
+}
+
+const PRESET = {
+  all: [null, null],
+  year: d => [`${d.slice(0, 4)}-01-01`, d],
+  "6m": d => [addMonths(d, -6), d],
+  "3m": d => [addMonths(d, -3), d],
+  "1m": d => [addMonths(d, -1), d],
+  half: d => [addDays(d, -15), d],
+  "1w": d => [addDays(d, -7), d],
+};
+
+document.querySelectorAll(".rangebar").forEach(bar => {
+  const target = bar.dataset.target;
+  const applyBtn = bar.querySelector(".rq[id^='apply-']");
+  const startInp = bar.querySelector("input[id^='start-']");
+  const endInp = bar.querySelector("input[id^='end-']");
+  // 快捷按钮
+  bar.querySelectorAll(".rq[data-kind]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      bar.querySelectorAll(".rq[data-kind]").forEach(b => b.classList.toggle("active", b === btn));
+      const fn = PRESET[btn.dataset.kind];
+      const today = _latestDate;
+      const [s, e] = fn ? fn(today) : [null, null];
+      if (s) { startInp.value = s; endInp.value = e; }
+      applyRange(target, s, e);
+    });
+  });
+  // 自定义日期
+  applyBtn.addEventListener("click", () => {
+    const s = startInp.value, e = endInp.value;
+    if (!s || !e) return;
+    bar.querySelectorAll(".rq[data-kind]").forEach(b => b.classList.remove("active"));
+    applyRange(target, s, e);
+  });
+});
+
+function showSignalModal(kind, date, price, bandName, band) {
+  const el = document.getElementById("signalModal");
+  el.innerHTML = `<div class="modal-card">
+      <button class="modal-close" id="modalClose">×</button>
+      <h3>${kind === "买入" ? "🔴 买入信号" : "🟢 卖出信号"}</h3>
+      <table class="wk">
+        <tr><th>日期</th><td>${date}</td></tr>
+        <tr><th>成交净值</th><td class="num" style="font-weight:700">${price}</td></tr>
+        <tr><th>触发轨道</th><td>${bandName} ${band}</td></tr>
+      </table>
+      <p class="muted">按策略2规则：当日收盘判定，次日执行</p>
+    </div>`;
+  el.style.display = "flex";
+  document.getElementById("modalClose").addEventListener("click", () => { el.style.display = "none"; });
+  el.addEventListener("click", (ev) => { if (ev.target === el) el.style.display = "none"; });
 }
 
 async function load(doFetch = false) {

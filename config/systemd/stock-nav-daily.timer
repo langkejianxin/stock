@@ -1,0 +1,13 @@
+[Unit]
+Description=每交易日 20:30 抓净值 + 出信号 (周一~周五)
+Documentation=file:/opt/stock/README.md
+
+[Timer]
+# 周一至周五 20:30(服务器时区, 应为 Asia/Shanghai)
+OnCalendar=Mon..Fri 20:30
+# 若到点时服务器关机/离线, 开机后补跑一次
+Persistent=true
+Unit=stock-nav-daily.service
+
+[Install]
+WantedBy=timers.target

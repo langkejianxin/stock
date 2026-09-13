@@ -1,0 +1,10 @@
+[Unit]
+Description=发送平台访问链接(含当前小时 token)到邮箱
+Documentation=file:/opt/stock/README.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/stock
+ExecStart=/usr/bin/python3.8 /opt/stock/python/send_token_mail.py
+StandardOutput=append:/opt/stock/logs/mail.log
+StandardError=append:/opt/stock/logs/mail.log

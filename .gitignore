@@ -7,3 +7,7 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# 凭据(勿入库)
+config/mail.conf
+config/token_secret.txt
