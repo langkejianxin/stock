@@ -1,0 +1,14 @@
+[Unit]
+Description=每分钟检查一次触发邮件(收到指定发件人的邮件 -> 回复访问链接)
+Documentation=file:/opt/stock/README.md
+
+[Timer]
+# 每分钟的第 0 秒
+OnCalendar=*:*:00
+AccuracySec=1s
+# 每分钟的任务不需要开机补跑
+Persistent=false
+Unit=stock-mail-check.service
+
+[Install]
+WantedBy=timers.target

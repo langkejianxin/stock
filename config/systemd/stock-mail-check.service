@@ -1,0 +1,14 @@
+[Unit]
+Description=检查触发邮件并回复访问链接
+Documentation=file:/opt/stock/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/stock
+ExecStart=/usr/bin/python3.8 /opt/stock/python/check_mail_and_reply.py
+StandardOutput=append:/opt/stock/logs/mail.log
+StandardError=append:/opt/stock/logs/mail.log
+# 单次运行最长 50 秒(下一次检查每分钟触发, 避免堆积)
+TimeoutStartSec=50

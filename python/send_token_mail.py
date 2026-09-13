@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-每小时把"带当前小时 token 的平台访问链接"发送到指定邮箱。
+发送"带访问 token 的链接"邮件。
 
-token = md5(私钥 + 当前小时)   例: md5(a + "2026091321")
-链接形如: http://<公网地址>:<端口>/?token=<token>
+token 规则见 token_lib.py:  "<ts>-<md5(私钥+ts)>", 链接 **10 分钟内**有效。
 
-配置: config/mail.conf(key=value), 私钥: config/token_secret.txt
-用法: python3 send_token_mail.py            # 正常发送
-      python3 send_token_mail.py --print    # 只打印链接, 不发信(调试)
+本模块既可作为库被 check_mail_and_reply.py 调用, 也可单独运行(手动补发一封):
+    python3 send_token_mail.py            # 直接发一封
+    python3 send_token_mail.py --print    # 只打印链接, 不发信
+
+配置: config/mail.conf, 私钥: config/token_secret.txt
 """
-import hashlib
 import os
 import smtplib
 import ssl
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from email.message import EmailMessage
+
+import token_lib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -45,38 +47,36 @@ def load_secret(path=SECRET_FILE):
     return s
 
 
-def hour_key(dt=None):
-    return (dt or datetime.now()).strftime("%Y%m%d%H")
-
-
-def make_token(secret, dt=None):
-    return hashlib.md5((secret + hour_key(dt)).encode("utf-8")).hexdigest()
-
-
-def build_text(conf, token):
+def build_url(conf, token):
     host = conf.get("public_host", "127.0.0.1")
     port = conf.get("port", "8756")
     scheme = conf.get("scheme", "http")
-    url = f"{scheme}://{host}:{port}/?token={token}"
-    now = datetime.now()
-    nxt = (now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
+    return f"{scheme}://{host}:{port}/?token={token}"
+
+
+def build_text(conf, token, ttl_min=None):
+    """邮件正文。"""
+    ttl_min = ttl_min or int(token_lib.TTL / 60)
+    url = build_url(conf, token)
+    cookie_h = int(token_lib.COOKIE_TTL / 3600)
     return (
-        f"策略平台访问链接\n\n"
+        f"策略平台访问链接（{ttl_min} 分钟内有效）\n\n"
         f"    {url}\n\n"
-        f"· 本链接有效期至 {nxt.strftime('%Y-%m-%d %H:00')}（{hour_key()} 这一小时）\n"
-        f"· 下一个整点会自动收到新链接；旧链接随即失效\n"
-        f"· 点击后 1 小时内可正常浏览（Cookie 已种下，页面内请求无需再带 token）\n"
+        f"· 请在 {ttl_min} 分钟内点击打开，过期后链接失效（需重新发邮件索取）\n"
+        f"· 打开后可正常浏览约 {cookie_h} 小时（浏览器已种 Cookie）\n"
+        f"· 想再要一个链接：用 1053075900@qq.com 给本邮箱发一封邮件即可（自动回复）\n"
         f"· 在服务器上通过 SSH 隧道访问（127.0.0.1）无需 token\n\n"
-        f"— ETF 策略监控台 · {now.strftime('%Y-%m-%d %H:%M')}"
+        f"— ETF 策略监控台 · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
 
-def send(conf, subject, text):
+def send(conf, subject, text, to=None):
+    """通过 SMTP 发信。返回 (是否成功, 错误)。"""
     host = conf.get("smtp_host", "smtp.qq.com")
     port = int(conf.get("smtp_port", "465"))
     user = conf["user"]
     code = conf["auth_code"]
-    to = conf.get("to", user)
+    to = to or conf.get("to", user)
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -99,23 +99,31 @@ def send(conf, subject, text):
     return False, last
 
 
+def send_link(conf, secret, reason=""):
+    """生成 token 并发一封链接邮件。返回 (是否成功, token)。"""
+    token = token_lib.make_token(secret)
+    ttl_min = int(token_lib.TTL / 60)
+    subject = f"[策略平台] 访问链接（{ttl_min}分钟内有效）{datetime.now().strftime('%m-%d %H:%M')}"
+    ok, err = send(conf, subject, build_text(conf, token))
+    if ok:
+        print(f"[ok] 链接已发送到 {conf.get('to')} (token {token[:24]}…){reason}", flush=True)
+    else:
+        print(f"[error] 发送失败: {err}", flush=True)
+    return ok, token
+
+
 def main():
     conf = load_conf()
     secret = load_secret()
-    token = make_token(secret)
-    text = build_text(conf, token)
 
     if "--print" in sys.argv:
-        print(text)
+        token = token_lib.make_token(secret)
+        print(build_text(conf, token))
+        print(f"\n(校验: {token_lib.verify(secret, token)})")
         return 0
 
-    subject = f"[策略平台] 访问链接 {datetime.now().strftime('%m-%d %H:00')}"
-    ok, err = send(conf, subject, text)
-    if ok:
-        print(f"[ok] 已发送到 {conf.get('to')}  (token {token[:8]}…, {hour_key()})", flush=True)
-        return 0
-    print(f"[error] 发送失败: {err}", flush=True)
-    return 1
+    ok, _ = send_link(conf, secret, reason=" [手动]")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

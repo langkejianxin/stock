@@ -6,30 +6,29 @@ ETF 策略监控台 —— 本地/远程 Web 服务
   1) 127.0.0.1 / ::1  →  免认证(服务器本机、SSH 隧道)
   2) 否则必须带 token →  公网访问需要 ?token=xxxx 或 Cookie
 
-  token 生成: md5(私钥 + 当前小时)         例: md5(a + "2026091321")
-     - 私钥 a 存于 config/token_secret.txt(自动生成, 权限 600)
-     - 每小时自动更换; 校验通过后写入 Cookie(到本小时结束),
+  token 规则(见 token_lib.py): token = "<ts>-<md5(私钥 + ts)>"
+     - ts = 生成时刻的 Unix 时间戳; 链接默认 **10 分钟内**有效
+     - 私钥存于 config/token_secret.txt(自动生成, 权限 600)
+     - 校验通过后写入 Cookie(浏览会话, 默认 2 小时),
        这样页面内部的 /api/data、/echarts.min.js 等请求无需重复带 token
-     - 校验失败一律【静默拒绝】(空 404, 不提示、不暴露机制)
-     - 每小时由 send_token_mail.py 把带 token 的链接发到指定邮箱
+     - 校验失败一律【静默拒绝】(空 404 / 直接断连, 不提示、不暴露机制)
+     - 链接按需索取: 给收件邮箱发一封邮件, check_mail_and_reply.py 每分钟检查并回复
 
 启动: python3 dashboard.py [端口]               默认 8756
       STOCK_BIND=0.0.0.0 python3 dashboard.py  # 监听所有网卡(远程部署)
 访问(本机):   http://127.0.0.1:8756
 访问(公网):   http://<host>:8756/?token=<当前小时token>
 """
-import hashlib
-import hmac
 import json
 import os
 import sys
 import time
 import urllib.parse
-from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import fetch_nav
 import strategy_lib
+import token_lib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                       # 项目根(含 data/ config/)
@@ -61,43 +60,14 @@ def load_secret():
 SECRET = load_secret()          # 启动时加载一次(改私钥需重启服务)
 
 
-def hour_key(dt=None):
-    """当前小时字符串, 形如 2026091321。"""
-    return (dt or datetime.now()).strftime("%Y%m%d%H")
-
-
-def make_token(secret, dt=None):
-    """token = md5(私钥 + 当前小时)。"""
-    return hashlib.md5((secret + hour_key(dt)).encode("utf-8")).hexdigest()
-
-
 def verify_token(tok):
-    """恒定时间比较, 防止时序侧信道。"""
-    if not SECRET or not tok:
-        return False
-    try:
-        return hmac.compare_digest(str(tok), make_token(SECRET))
-    except (TypeError, ValueError):
-        return False
+    """校验访问 token(见 token_lib): "<ts>-<md5(私钥+ts)>", 默认 10 分钟有效。"""
+    return token_lib.verify(SECRET, tok)
 
 
-def secs_to_hour_end():
-    """距离下一个整点的秒数(用于 Cookie 有效期)。"""
-    now = datetime.now()
-    nxt = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-    return max(1, int((nxt - now).total_seconds()))
-
-
-def gen_secret(path=SECRET_FILE):
-    """生成私钥文件(若不存在)。"""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    if os.path.exists(path):
-        return False
-    s = hashlib.sha256(os.urandom(32)).hexdigest()
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(s + "\n")
-    os.chmod(path, 0o600)
-    return True
+def cookie_max_age():
+    """点击链接后 Cookie 的存活秒数(浏览会话时长)。"""
+    return token_lib.COOKIE_TTL
 
 
 # ==================== 客户端 IP ====================
@@ -234,7 +204,7 @@ class Handler(BaseHTTPRequestHandler):
         if url_tok:
             # URL 带 token 访问 -> 种 Cookie(到本小时结束), 页面内请求免重复带 token
             extra.append(("Set-Cookie",
-                          f"{COOKIE_NAME}={url_tok}; Path=/; Max-Age={secs_to_hour_end()}; "
+                          f"{COOKIE_NAME}={url_tok}; Path=/; Max-Age={cookie_max_age()}; "
                           f"HttpOnly; SameSite=Lax"))
         return True, extra
 
@@ -290,8 +260,9 @@ def main():
         print(f"[warn] 未找到私钥 {SECRET_FILE} -> 公网 token 认证不可用(仅本机可访问)。"
               f"运行 `python3 dashboard.py --gen-secret` 生成。", flush=True)
     else:
-        print(f"[ok] token 认证已启用: 127.0.0.1 免认证, 公网需 ?token=<md5(私钥+{hour_key()})>", flush=True)
-        print(f"[ok] 当前小时 token: {make_token(SECRET)}  (下一个整点更换)", flush=True)
+        print(f"[ok] token 认证已启用: 127.0.0.1 免认证, 公网需 ?token=<ts-md5(私钥+ts)> "
+              f"(有效期 {int(token_lib.TTL/60)} 分钟)", flush=True)
+        print(f"[ok] 示例 token: {token_lib.make_token(SECRET)}", flush=True)
     srv = ThreadingHTTPServer((BIND, PORT), Handler)
     print(f"ETF 策略监控台已启动: http://{BIND}:{PORT}  (Ctrl+C 停止)", flush=True)
     try:
