@@ -58,12 +58,12 @@ def build_text(conf, token, ttl_min=None):
     """邮件正文。"""
     ttl_min = ttl_min or int(token_lib.TTL / 60)
     url = build_url(conf, token)
-    cookie_h = int(token_lib.COOKIE_TTL / 3600)
+    cookie_min = int(token_lib.COOKIE_TTL / 60)
     return (
         f"策略平台访问链接（{ttl_min} 分钟内有效）\n\n"
         f"    {url}\n\n"
         f"· 请在 {ttl_min} 分钟内点击打开，过期后链接失效（需重新发邮件索取）\n"
-        f"· 打开后可正常浏览约 {cookie_h} 小时（浏览器已种 Cookie）\n"
+        f"· 打开后可正常浏览约 {cookie_min} 分钟（浏览器已种 Cookie，超时后需重新索取）\n"
         f"· 想再要一个链接：用 1053075900@qq.com 给本邮箱发一封邮件即可（自动回复）\n"
         f"· 在服务器上通过 SSH 隧道访问（127.0.0.1）无需 token\n\n"
         f"— ETF 策略监控台 · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"

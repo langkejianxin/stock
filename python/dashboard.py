@@ -9,7 +9,7 @@ ETF 策略监控台 —— 本地/远程 Web 服务
   token 规则(见 token_lib.py): token = "<ts>-<md5(私钥 + ts)>"
      - ts = 生成时刻的 Unix 时间戳; 链接默认 **10 分钟内**有效
      - 私钥存于 config/token_secret.txt(自动生成, 权限 600)
-     - 校验通过后写入 Cookie(浏览会话, 默认 2 小时),
+     - 校验通过后写入 Cookie(浏览会话, 默认 10 分钟),
        这样页面内部的 /api/data、/echarts.min.js 等请求无需重复带 token
      - 校验失败一律【静默拒绝】(空 404 / 直接断连, 不提示、不暴露机制)
      - 链接按需索取: 给收件邮箱发一封邮件, check_mail_and_reply.py 每分钟检查并回复

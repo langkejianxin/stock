@@ -20,13 +20,13 @@
         ↓  （服务器每分钟检查一次收件箱）
 平台：自动回一封邮件到 1053075900@qq.com，里面是带 token 的链接
         ↓
-你：点开链接 → 正常浏览（10 分钟内需点开，点开后可用约 2 小时）
+你：点开链接 → 正常浏览（10 分钟内需点开，点开后再可用 10 分钟）
 ```
 
 要点：
 
 - **链接 10 分钟内有效**（过了就点不开，重新发一封邮件再要一个即可）
-- 点开后种 Cookie，浏览会话约 **2 小时**，期间页面内请求无需再带 token
+- 点开后种 Cookie，浏览会话 **10 分钟**（与链接有效期一致），期间页面内请求无需再带 token
 - 只有来自 **`trigger_from`**（默认 `1053075900@qq.com`）的邮件才会触发，其他邮件忽略
 - **上线时只记录基线**，不会把历史邮件全部回一遍；之后每封新邮件都会回应一次
 
@@ -55,7 +55,7 @@ ssh root@8.138.182.173 'tail -20 /opt/stock/logs/mail.log'
 /opt/stock/
 ├── python/
 │   ├── dashboard.py            # Web 服务（token 认证, 监听 0.0.0.0:8756）
-│   ├── token_lib.py            # token 生成/校验（10 分钟 TTL, Cookie 2 小时）
+│   ├── token_lib.py            # token 生成/校验（链接 10 分钟 / Cookie 10 分钟）
 │   ├── send_token_mail.py      # 生成并发送"带链接"的邮件（也可手动运行）
 │   ├── check_mail_and_reply.py # ★ 每分钟检查收件箱, 命中触发邮箱就回链接
 │   ├── dashboard.html          # 前端页面（ECharts 本地化）
@@ -87,7 +87,7 @@ Python 环境：**/usr/bin/python3.8** + pandas 2.0.3 + numpy 1.24.4
 token = "<ts>-<md5(私钥 + ts)>"
     ts  = 生成时刻的 Unix 时间戳(秒)
     有效期 = 10 分钟（超时即失效）
-    Cookie = 点开后 2 小时（浏览会话）
+    Cookie = 点开后 10 分钟（浏览会话, 与链接一致）
 ```
 
 - 私钥：`config/token_secret.txt`（自动生成，权限 600）

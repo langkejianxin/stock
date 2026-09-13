@@ -5,15 +5,15 @@ token = "<ts>-<md5(私钥 + ts)>"
     ts      = 生成时刻的 Unix 时间戳(秒)
     有效期  = TTL 秒(默认 600 = 10 分钟)
 
-校验通过后 dashboard 会种 Cookie(浏览会话), 时长 COOKIE_TTL(默认 2 小时),
-这样点开链接后页面内的 /api/data、/echarts.min.js 等请求不必反复带 token。
+校验通过后 dashboard 会种 Cookie(浏览会话), 时长 COOKIE_TTL(默认 600 = 10 分钟,
+与链接有效期一致): 即"点开链接后再浏览 10 分钟", 超时需重新发邮件索取新链接。
 """
 import hashlib
 import hmac
 import time
 
 TTL = 600            # 链接(token)有效期: 10 分钟
-COOKIE_TTL = 7200    # 点击链接后的浏览会话时长: 2 小时
+COOKIE_TTL = 600     # 点击链接后的浏览会话时长: 10 分钟
 CLOCK_SKEW = 60      # 允许的时钟偏差(秒)
 
 
